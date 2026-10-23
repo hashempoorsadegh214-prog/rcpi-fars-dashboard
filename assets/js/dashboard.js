@@ -13,7 +13,10 @@
     compareControl: null,
     charts: {},
     mainLoadedOnce: false,
-    boundaryLayers: []
+    boundaryLayers: [],
+    mainRequestId: 0,
+    mainRenderTimer: null,
+    rasterCache: new Map()
   };
 
   const CLASS_COLORS = ['#2ca02c', '#ffbb78', '#ff7f0e', '#d62728'];
@@ -128,20 +131,58 @@
     return defaultIndices[bandName] ?? 0;
   }
 
-  async function loadRasterLayer(entry, bandName, opacity = 0.86) {
-    if (!entry || !entry.path) throw new Error('مسیر فایل نقشه برای این انتخاب تعریف نشده است.');
-    if (typeof window.parseGeoraster !== 'function') throw new Error('کتابخانه خواندن GeoTIFF بارگذاری نشد؛ اتصال اینترنت یا CDN را بررسی کن.');
-    if (typeof window.GeoRasterLayer !== 'function') throw new Error('کتابخانه نمایش GeoTIFF بارگذاری نشد؛ صفحه را تازه‌سازی کن.');
+  async function getParsedRaster(entry) {
+    if (!entry || !entry.path) {
+      throw new Error('مسیر فایل نقشه برای این انتخاب تعریف نشده است.');
+    }
+    if (typeof window.parseGeoraster !== 'function') {
+      throw new Error('کتابخانه خواندن GeoTIFF بارگذاری نشد؛ اتصال اینترنت یا CDN را بررسی کن.');
+    }
 
     const url = new URL(entry.path, document.baseURI).href;
-    const response = await fetch(url, { cache: 'no-store' });
-    if (!response.ok) {
-      throw new Error(`فایل نقشه پیدا نشد: ${entry.path}. فایل GeoTIFF را با همین نام در مخزن قرار بده.`);
+    let rasterPromise = state.rasterCache.get(url);
+
+    if (rasterPromise) {
+      // Refresh its position in the Map so the cache behaves like a small LRU.
+      state.rasterCache.delete(url);
+      state.rasterCache.set(url, rasterPromise);
+    } else {
+      rasterPromise = (async () => {
+        const response = await fetch(url, { cache: 'force-cache' });
+        if (!response.ok) {
+          throw new Error(`فایل نقشه پیدا نشد: ${entry.path}. این سال تا زمان بارگذاری GeoTIFF در مخزن قابل نمایش نیست.`);
+        }
+        const buffer = await response.arrayBuffer();
+        return window.parseGeoraster(buffer);
+      })();
+      state.rasterCache.set(url, rasterPromise);
+
+      // Cache only two raster datasets to avoid unnecessary browser memory use.
+      while (state.rasterCache.size > 2) {
+        const oldestUrl = state.rasterCache.keys().next().value;
+        if (oldestUrl === url) break;
+        state.rasterCache.delete(oldestUrl);
+      }
     }
-    const buffer = await response.arrayBuffer();
-    const raster = await window.parseGeoraster(buffer);
+
+    try {
+      return await rasterPromise;
+    } catch (error) {
+      if (state.rasterCache.get(url) === rasterPromise) {
+        state.rasterCache.delete(url);
+      }
+      throw error;
+    }
+  }
+
+  async function loadRasterLayer(entry, bandName, opacity = 0.86) {
+    if (typeof window.GeoRasterLayer !== 'function') {
+      throw new Error('کتابخانه نمایش GeoTIFF بارگذاری نشد؛ صفحه را تازه‌سازی کن.');
+    }
+
+    const raster = await getParsedRaster(entry);
     const bandIndex = getBandIndex(entry, bandName);
-    if (raster.numberOfRasters && bandIndex >= raster.numberOfRasters) {
+    if (!Number.isInteger(bandIndex) || bandIndex < 0 || (raster.numberOfRasters && bandIndex >= raster.numberOfRasters)) {
       throw new Error(`باند ${bandName} در فایل ${entry.path} وجود ندارد. ترتیب باندها را در data/map_catalog.json اصلاح کن.`);
     }
 
@@ -151,6 +192,46 @@
       resolution: 128,
       pixelValuesToColorFn: (values) => pixelColor(values, raster, bandName, bandIndex)
     });
+  }
+
+  // Check the files listed in the catalogue once, using lightweight HEAD requests.
+  // Years without an actual GeoTIFF are removed from the selectors instead of
+  // appearing selectable and then failing when the user chooses them.
+  async function findAvailableHistoricalYears() {
+    const configuredYears = (state.catalog.historicalYears || [])
+      .map(Number)
+      .filter((year) => Number.isInteger(year) && year >= 1900 && year <= 2100)
+      .sort((a, b) => a - b);
+
+    if (!configuredYears.length || !state.catalog.historicalTemplate) return;
+
+    const availability = new Map();
+    let cursor = 0;
+    const workerCount = Math.min(6, configuredYears.length);
+
+    async function worker() {
+      while (cursor < configuredYears.length) {
+        const year = configuredYears[cursor++];
+        const path = state.catalog.historicalTemplate.replace('{year}', String(year));
+        const url = new URL(path, document.baseURI).href;
+        try {
+          const response = await fetch(url, { method: 'HEAD', cache: 'no-store' });
+          if (response.status === 404) availability.set(year, false);
+          else if (response.ok) availability.set(year, true);
+          else availability.set(year, null); // Unknown: do not hide it on a server-side HEAD restriction.
+        } catch (_networkCheckError) {
+          availability.set(year, null);
+        }
+      }
+    }
+
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+    const confirmedAvailable = configuredYears.filter((year) => availability.get(year) === true);
+
+    // If the host blocks HEAD checks, retain the catalogue rather than emptying the selector.
+    if (confirmedAvailable.length) {
+      state.catalog.historicalYears = configuredYears.filter((year) => availability.get(year) !== false);
+    }
   }
 
   function sourceLabel(source, year) {
@@ -176,32 +257,56 @@
   }
 
   async function renderMainMap() {
+    const requestId = ++state.mainRequestId;
     const button = $('load-map-btn');
+    const source = $('source-select').value;
+    const selectedYear = $('year-select').value;
     const entry = currentEntry();
     const bandName = $('band-select').value;
     const opacity = Number($('opacity-select').value) / 100;
+    const title = sourceLabel(source, selectedYear);
+
     button.disabled = true;
-    setStatus('map-status', 'در حال بارگذاری نقشه…', 'info');
-    $('map-title').textContent = sourceLabel($('source-select').value, $('year-select').value);
+    setStatus('map-status', `در حال بارگذاری «${title}»…`, 'info');
+    $('map-title').textContent = title;
     $('map-subtitle').textContent = `${bandName} · GeoTIFF`;
     updateLegend(bandName);
 
     try {
+      if (!entry) throw new Error('برای انتخاب فعلی، نقشه‌ای در فهرست تعریف نشده است.');
       const newLayer = await loadRasterLayer(entry, bandName, opacity);
+
+      // Ignore any older request that finishes after the user selects a different year.
+      if (requestId !== state.mainRequestId) return;
+
       const oldLayer = state.mainLayer;
       newLayer.addTo(state.mainMap);
       if (oldLayer) state.mainMap.removeLayer(oldLayer);
       state.mainLayer = newLayer;
+
+      // Fit bounds only at the first successful load; keep the user’s zoom when changing years.
       if (!state.mainLoadedOnce) {
         state.mainMap.fitBounds(newLayer.getBounds(), { padding: [16, 16], maxZoom: 8 });
         state.mainLoadedOnce = true;
       }
-      setStatus('map-status', `نقشه «${sourceLabel($('source-select').value, $('year-select').value)}» نمایش داده شد.`, 'success');
+
+      setStatus('map-status', `نقشه «${title}» نمایش داده شد.`, 'success');
     } catch (error) {
-      setStatus('map-status', error.message || 'بارگذاری نقشه ناموفق بود.', 'warning');
+      if (requestId !== state.mainRequestId) return;
+      let message = error.message || 'بارگذاری نقشه ناموفق بود.';
+      if (state.mainLayer) message += ' نقشه قبلی تا زمان بارگذاری موفق نقشه جدید حفظ شده است.';
+      setStatus('map-status', message, 'warning');
     } finally {
-      button.disabled = false;
+      if (requestId === state.mainRequestId) button.disabled = false;
     }
+  }
+
+  function scheduleMainMapRender() {
+    if (state.mainRenderTimer) clearTimeout(state.mainRenderTimer);
+    state.mainRenderTimer = setTimeout(() => {
+      state.mainRenderTimer = null;
+      renderMainMap();
+    }, 160);
   }
 
   function initMainMap() {
@@ -320,8 +425,10 @@
   }
 
   function populateYearSelect() {
-    const years = state.catalog.historicalYears || [];
-    $('year-select').innerHTML = years.slice().reverse().map((year) => `<option value="${year}" ${year === 2020 ? 'selected' : ''}>${year}</option>`).join('');
+    const years = (state.catalog.historicalYears || []).slice().sort((a, b) => b - a);
+    $('year-select').innerHTML = years.map((year) => `<option value="${year}">${year}</option>`).join('');
+    if (years.includes(2020)) $('year-select').value = '2020';
+    else if (years.length) $('year-select').value = String(years[0]);
   }
 
   function populateCompareSelects() {
@@ -378,6 +485,13 @@
       setStatus('compare-status', 'مقایسه آماده است؛ دستگیره عمودی روی نقشه را بکش.', 'success');
       setTimeout(() => state.compareMap.invalidateSize(), 100);
     } catch (error) {
+      // Clean up failed comparison layers so they cannot remain stacked on top of each other.
+      if (state.compareControl) {
+        state.compareMap.removeControl(state.compareControl);
+        state.compareControl = null;
+      }
+      state.compareLayers.forEach((layer) => state.compareMap.removeLayer(layer));
+      state.compareLayers = [];
       setStatus('compare-status', error.message || 'ساخت مقایسه ناموفق بود.', 'warning');
     } finally {
       button.disabled = false;
@@ -501,21 +615,34 @@
       $('year-control-wrap').hidden = !historical;
       $('map-title').textContent = sourceLabel($('source-select').value, $('year-select').value);
       renderCharts();
+      scheduleMainMapRender();
     });
+
     $('load-map-btn').addEventListener('click', renderMainMap);
+
     $('year-select').addEventListener('change', () => {
       $('map-title').textContent = sourceLabel($('source-select').value, $('year-select').value);
       renderCharts();
+      scheduleMainMapRender();
     });
-    $('band-select').addEventListener('change', () => updateLegend($('band-select').value));
+
+    $('band-select').addEventListener('change', () => {
+      updateLegend($('band-select').value);
+      scheduleMainMapRender();
+    });
+
     $('opacity-select').addEventListener('input', () => {
       $('opacity-output').textContent = `${Number($('opacity-select').value).toLocaleString('fa-IR')}٪`;
-      if (state.mainLayer && typeof state.mainLayer.setOpacity === 'function') state.mainLayer.setOpacity(Number($('opacity-select').value) / 100);
+      if (state.mainLayer && typeof state.mainLayer.setOpacity === 'function') {
+        state.mainLayer.setOpacity(Number($('opacity-select').value) / 100);
+      }
     });
+
     $('compare-btn').addEventListener('click', renderCompare);
     $('compare-band').addEventListener('change', () => {
       if (state.compareLayers.length) renderCompare();
     });
+
     document.querySelectorAll('.nav-link').forEach((link) => {
       link.addEventListener('click', () => {
         document.querySelectorAll('.nav-link').forEach((item) => item.classList.remove('active'));
@@ -576,6 +703,8 @@
       if (!summaryResponse.ok) throw new Error('فایل data/summary.json بارگذاری نشد.');
       state.catalog = await catalogResponse.json();
       state.summary = await summaryResponse.json();
+      setStatus('map-status', 'در حال بررسی فایل‌های نقشه موجود…', 'info');
+      await findAvailableHistoricalYears();
       // Optional CSV: export it from Earth Engine and upload as data/annual_summary.csv.
       // If it is absent, the dashboard continues with the values in summary.json.
       try {
@@ -594,9 +723,17 @@
       renderCharts();
       updateLegend('CLASS');
       $('year-control-wrap').hidden = false;
-      setStatus('map-status', 'رابط داشبورد آماده است. برای نمایش نقشه، فایل GeoTIFF سال یا سناریوی انتخابی را در پوشه مشخص‌شده قرار بده.', 'warning');
-      $('compare-status').textContent = 'برای ساخت مقایسه واقعی، هر دو فایل انتخاب‌شده باید در پوشه data/maps موجود باشند.';
-      setTimeout(() => { state.mainMap.invalidateSize(); state.compareMap.invalidateSize(); }, 150);
+      if (!(state.catalog.historicalYears || []).length) {
+        setStatus('map-status', 'در فهرست، سال تاریخی دارای فایل GeoTIFF پیدا نشد؛ فایل‌ها و مسیر historicalTemplate را بررسی کن.', 'warning');
+      } else {
+        setStatus('map-status', 'داشبورد آماده است؛ در حال بارگذاری نقشه پیش‌فرض…', 'info');
+      }
+      $('compare-status').textContent = 'برای ساخت مقایسه واقعی، هر دو فایل انتخاب‌شده باید در مسیرهای تعریف‌شده موجود باشند.';
+      setTimeout(() => {
+        state.mainMap.invalidateSize();
+        state.compareMap.invalidateSize();
+        if ((state.catalog.historicalYears || []).length) renderMainMap();
+      }, 150);
     } catch (error) {
       setStatus('map-status', error.message || 'راه‌اندازی داشبورد ناموفق بود.', 'error');
       console.error(error);
