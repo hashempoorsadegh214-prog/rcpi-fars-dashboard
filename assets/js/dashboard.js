@@ -235,15 +235,88 @@
     }
   }
 
+  function enableHorizontalOnlyPan(map) {
+    // Keep map panning horizontal while leaving the comparison slider and zoom controls usable.
+    map.dragging.disable();
+
+    const container = map.getContainer();
+    container.style.touchAction = 'pan-y';
+    container.style.userSelect = 'none';
+    container.style.webkitUserSelect = 'none';
+    container.style.cursor = 'grab';
+
+    let activePointerId = null;
+    let startX = 0;
+    let startY = 0;
+    let lastX = 0;
+    let dragAxis = null;
+
+    function isControlTarget(target) {
+      return target instanceof Element && Boolean(target.closest(
+        '.leaflet-control, .leaflet-control-container, .leaflet-sbs-range, input, button, select, textarea, a, [role="button"]'
+      ));
+    }
+
+    container.addEventListener('pointerdown', (event) => {
+      if (isControlTarget(event.target)) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      if (event.isPrimary === false) return;
+
+      activePointerId = event.pointerId;
+      startX = lastX = event.clientX;
+      startY = event.clientY;
+      dragAxis = null;
+    });
+
+    function onPointerMove(event) {
+      if (event.pointerId !== activePointerId) return;
+
+      const totalX = event.clientX - startX;
+      const totalY = event.clientY - startY;
+
+      if (dragAxis === null) {
+        if (Math.hypot(totalX, totalY) < 4) return;
+        // If the user starts dragging mostly vertically, do not pan the map.
+        dragAxis = Math.abs(totalX) > Math.abs(totalY) ? 'horizontal' : 'vertical';
+        if (dragAxis === 'horizontal') container.style.cursor = 'grabbing';
+      }
+
+      if (dragAxis !== 'horizontal') return;
+      if (event.cancelable) event.preventDefault();
+
+      const deltaX = event.clientX - lastX;
+      lastX = event.clientX;
+      if (deltaX !== 0) map.panBy([-deltaX, 0], { animate: false });
+    }
+
+    function finishPointer(event) {
+      if (event.pointerId !== activePointerId) return;
+      activePointerId = null;
+      dragAxis = null;
+      container.style.cursor = 'grab';
+    }
+
+    // Listen on document so horizontal dragging continues if the pointer leaves the map.
+    document.addEventListener('pointermove', onPointerMove, { passive: false });
+    document.addEventListener('pointerup', finishPointer);
+    document.addEventListener('pointercancel', finishPointer);
+  }
+
   function initCompareMap() {
     const center = state.catalog.mapCenter || [29.3, 53.0];
     const zoom = state.catalog.mapZoom || 6.5;
-    state.compareMap = L.map('compare-map', { zoomControl: true }).setView(center, zoom);
+    state.compareMap = L.map('compare-map', {
+      zoomControl: true,
+      keyboard: false,
+      scrollWheelZoom: 'center',
+      doubleClickZoom: 'center'
+    }).setView(center, zoom);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 18,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
     }).addTo(state.compareMap);
     state.compareMap.attributionControl.setPrefix('');
+    enableHorizontalOnlyPan(state.compareMap);
   }
 
   function populateYearSelect() {
@@ -279,6 +352,11 @@
     button.disabled = true;
     setStatus('compare-status', 'در حال آماده‌سازی دو لایه برای مقایسه…', 'info');
     try {
+      // Verify the plugin before adding raster layers so a missing plugin cannot leave them stacked.
+      if (typeof L.control?.sideBySide !== 'function') {
+        throw new Error('افزونه اسلایدر مقایسه بارگذاری نشد. آدرس افزونه در index.html را بررسی کن.');
+      }
+
       const [leftLayer, rightLayer] = await Promise.all([
         loadRasterLayer(leftEntry, band, 0.92),
         loadRasterLayer(rightEntry, band, 0.92)
@@ -293,7 +371,6 @@
       leftLayer.addTo(state.compareMap);
       rightLayer.addTo(state.compareMap);
 
-      if (typeof L.control.sideBySide !== 'function') throw new Error('افزونه اسلایدر مقایسه بارگذاری نشد. صفحه را تازه‌سازی کن.');
       state.compareControl = L.control.sideBySide(leftLayer, rightLayer).addTo(state.compareMap);
       state.compareMap.fitBounds(leftLayer.getBounds(), { padding: [16, 16], maxZoom: 8 });
       $('compare-left-label').textContent = leftEntry.label || leftEntry.year || 'نقشه اول';
