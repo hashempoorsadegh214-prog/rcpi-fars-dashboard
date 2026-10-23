@@ -17,3 +17,19 @@
 .topbar .brand-text p {
   display: none !important;
 }
+/* Fix comparison slider alignment on RTL pages */
+#compare-map .leaflet-sbs,
+#compare-map .leaflet-sbs-range {
+  direction: ltr !important;
+}
+
+#compare-map .leaflet-sbs-range {
+  writing-mode: horizontal-tb !important;
+  unicode-bidi: isolate;
+  cursor: ew-resize !important;
+}
+
+#compare-map .leaflet-sbs-divider {
+  direction: ltr !important;
+  pointer-events: none;
+}
