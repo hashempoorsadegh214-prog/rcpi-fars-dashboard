@@ -31,7 +31,7 @@
     2024,
     2025
   ],
-  "historicalTemplate": "data/maps/historical/RCPI_Fars_{year}.tif",
+  "historicalTemplate": "data/historical/RCPI_Fars_{year}.tif",
   "forecasts": [
     {
       "key": "bau",
@@ -48,7 +48,7 @@
     {
       "key": "ssp245",
       "label": "سناریوی میانه SSP2-4.5",
-      "path": "data/maps/forecast/RCPI_Fars_2035_SSP245_Mid.tif",
+      "path": "data/maps/forecast/RCPI_Fars_2035_SSP245/ة_Mid.tif",
       "year": 2035,
       "bands": {
         "RCPI": 0,
