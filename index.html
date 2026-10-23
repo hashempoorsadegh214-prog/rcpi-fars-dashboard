@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101827">
+  <meta name="description" content="داشبورد تعاملی پایش تاریخی و سناریوهای آینده شاخص RCPI استان فارس">
+  <title>داشبورد RCPI استان فارس</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark" aria-hidden="true"><span>R</span><i></i></div>
+    <div class="brand-text">
+      <div class="eyebrow">سامانه پایش مکانی و آینده‌پژوهی</div>
+      <h1>شاخص RCPI استان فارس</h1>
+      <p>پایش تاریخی، سناریوهای ۲۰۳۵ و مقایسه مکانی</p>
+    </div>
+    <div class="top-meta">
+      <span class="status-dot"></span>
+      <span>داشبورد تعاملی</span>
+      <span class="meta-separator">|</span>
+      <span>۱۹۹۶–۲۰۳۵</span>
+    </div>
+  </header>
+
+  <nav class="nav-tabs" aria-label="بخش‌های داشبورد">
+    <a href="#overview" class="nav-link active">نمای کلی</a>
+    <a href="#map-section" class="nav-link">نقشه‌ها</a>
+    <a href="#charts-section" class="nav-link">نمودارها</a>
+    <a href="#compare-section" class="nav-link">مقایسه اسلایدی</a>
+    <a href="#method-section" class="nav-link">روش‌شناسی</a>
+  </nav>
+
+  <main class="container">
+    <section id="overview" class="intro-row">
+      <div>
+        <div class="section-kicker">RCPI · FARS PROVINCE</div>
+        <h2>پایش روند گذشته و بررسی آینده</h2>
+        <p class="intro-copy">نقشه‌های واقعی خروجی Google Earth Engine، نمودارهای آماری و مقایسه اسلایدی در یک صفحه. این داشبورد محاسبات سنگین را دوباره اجرا نمی‌کند؛ فایل‌های نهایی و آمار ثبت‌شده را نمایش می‌دهد.</p>
+      </div>
+      <div class="intro-badge"><span class="pulse"></span><span>آماده اتصال به خروجی‌های واقعی</span></div>
+    </section>
+
+    <section class="kpi-grid" aria-label="آستانه‌های مرجع">
+      <article class="kpi-card kpi-green">
+        <div class="kpi-top"><span>چارک اول مرجع ۲۰۲۰</span><span class="kpi-symbol">P25</span></div>
+        <strong id="kpi-p25">۰٫۴۴۷۳</strong>
+        <div class="kpi-foot">مرز طبقه اول و دوم</div>
+      </article>
+      <article class="kpi-card kpi-amber">
+        <div class="kpi-top"><span>میانه مرجع ۲۰۲۰</span><span class="kpi-symbol">P50</span></div>
+        <strong id="kpi-p50">۰٫۵۱۳۷</strong>
+        <div class="kpi-foot">مرز طبقه دوم و سوم</div>
+      </article>
+      <article class="kpi-card kpi-orange">
+        <div class="kpi-top"><span>چارک سوم مرجع ۲۰۲۰</span><span class="kpi-symbol">P75</span></div>
+        <strong id="kpi-p75">۰٫۵۸۰۱</strong>
+        <div class="kpi-foot">مرز طبقه سوم و چهارم</div>
+      </article>
+      <article class="kpi-card kpi-red">
+        <div class="kpi-top"><span>میانگین RCPI سناریوی BAU</span><span class="kpi-symbol">2035</span></div>
+        <strong id="kpi-bau-mean">۰٫۵۴۵۰</strong>
+        <div class="kpi-foot">برون‌یابی آماری؛ نه مدل اقلیمی</div>
+      </article>
+    </section>
+
+    <section id="map-section" class="panel-section">
+      <div class="section-heading">
+        <div><div class="section-kicker">INTERACTIVE MAP</div><h2>نقشه تعاملی RCPI</h2><p>سال، سناریو و نوع شاخص را انتخاب کن.</p></div>
+        <span class="section-chip"><span class="tiny-dot"></span> لایه رستری</span>
+      </div>
+      <div class="map-layout">
+        <aside class="control-panel">
+          <label for="source-select">دوره / سناریو</label>
+          <select id="source-select">
+            <option value="historical">سری تاریخی</option>
+            <option value="bau">ادامه روند موجود — BAU</option>
+            <option value="ssp245">سناریوی میانه — SSP2-4.5</option>
+            <option value="ssp585">سناریوی بدبینانه — SSP5-8.5</option>
+          </select>
+          <div id="year-control-wrap">
+            <label for="year-select">سال تاریخی</label>
+            <select id="year-select"></select>
+          </div>
+          <label for="band-select">متغیر نقشه</label>
+          <select id="band-select">
+            <option value="CLASS">طبقات RCPI (چهار کلاس)</option>
+            <option value="RCPI">مقدار پیوسته RCPI</option>
+            <option value="TPPI">شاخص TPPI</option>
+            <option value="HEDI">شاخص HEDI</option>
+          </select>
+          <div class="opacity-control">
+            <label for="opacity-select">شفافیت لایه</label>
+            <div class="range-row"><input id="opacity-select" type="range" min="20" max="100" value="86"><output id="opacity-output">۸۶٪</output></div>
+          </div>
+          <button id="load-map-btn" class="primary-btn"><span>↻</span> نمایش نقشه انتخاب‌شده</button>
+          <div id="map-status" class="status-box info" role="status">در حال آماده‌سازی داشبورد…</div>
+          <div class="legend-box">
+            <h3 id="legend-title">راهنمای طبقات RCPI</h3>
+            <div id="legend-content" class="legend-content"></div>
+          </div>
+          <div class="map-note">فایل‌های نقشه در پوشه <code>data/maps/</code> قرار می‌گیرند. اگر فایلی بارگذاری نشده باشد، نقشه ساختگی نمایش داده نمی‌شود.</div>
+        </aside>
+        <div class="map-card">
+          <div class="map-card-head"><div><strong id="map-title">نقشه RCPI استان فارس</strong><small id="map-subtitle">انتخاب دوره از پنل کناری</small></div><span class="live-label">MAP VIEW</span></div>
+          <div id="main-map" aria-label="نقشه تعاملی شاخص RCPI"></div>
+          <div class="map-caption"><span>پایه نقشه: OpenStreetMap</span><span id="map-band-caption">طبقات چهارگانه RCPI</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="charts-section" class="panel-section">
+      <div class="section-heading">
+        <div><div class="section-kicker">STATISTICS & CHARTS</div><h2>نمودارهای آماری</h2><p>مقادیر از فایل خلاصه آماری خوانده می‌شوند؛ داده‌های گزارش‌نشده خالی می‌مانند.</p></div>
+      </div>
+      <div class="chart-grid">
+        <article class="chart-card chart-wide"><div class="chart-head"><h3>روند میانگین RCPI و نقطه برآورد ۲۰۳۵</h3><span>۱۹۹۶–۲۰۳۵</span></div><div class="chart-wrap"><canvas id="trend-chart"></canvas></div><p class="chart-foot" id="trend-note">برای نمایش روند تاریخی، میانگین هر سال را در data/summary.json ثبت کن.</p></article>
+        <article class="chart-card"><div class="chart-head"><h3>مقایسه میانگین سناریوها</h3><span>سال ۲۰۳۵</span></div><div class="chart-wrap"><canvas id="scenario-chart"></canvas></div><p class="chart-foot" id="scenario-note">فقط مقدارهایی نمایش داده می‌شوند که از اجرای واقعی GEE ثبت شده باشند.</p></article>
+        <article class="chart-card"><div class="chart-head"><h3>آستانه‌های طبقه‌بندی مرجع</h3><span>سال ۲۰۲۰</span></div><div class="chart-wrap"><canvas id="threshold-chart"></canvas></div><p class="chart-foot">آستانه‌ها ثابت هستند تا مقایسه مکانی طبقات بین سال‌ها ممکن بماند.</p></article>
+        <article class="chart-card chart-wide"><div class="chart-head"><h3>مساحت چهار طبقه RCPI</h3><span>کیلومترمربع</span></div><div class="chart-wrap chart-wrap-short"><canvas id="area-chart"></canvas></div><p class="chart-foot" id="area-note">پس از ثبت مساحت واقعی طبقات در data/summary.json، نمودار این بخش تکمیل می‌شود.</p></article>
+      </div>
+    </section>
+
+    <section id="compare-section" class="panel-section">
+      <div class="section-heading">
+        <div><div class="section-kicker">SWIPE COMPARISON</div><h2>مقایسه اسلایدی نقشه‌ها</h2><p>دستگیره وسط نقشه را بکش تا لایه سمت چپ و راست را مقایسه کنی.</p></div>
+        <span class="section-chip">مقایسه چپ / راست</span>
+      </div>
+      <div class="compare-controls">
+        <div><label for="compare-left">نقشه سمت راست نمایش؟ (سمت چپ اسلایدر)</label><select id="compare-left"></select></div>
+        <div><label for="compare-right">نقشه سمت راست اسلایدر</label><select id="compare-right"></select></div>
+        <div><label for="compare-band">متغیر مقایسه</label><select id="compare-band"><option value="CLASS">طبقات RCPI</option><option value="RCPI">RCPI پیوسته</option><option value="TPPI">TPPI</option><option value="HEDI">HEDI</option></select></div>
+        <button id="compare-btn" class="primary-btn">ساخت مقایسه</button>
+      </div>
+      <div class="compare-status status-box info" id="compare-status">دو فایل نقشه موجود را انتخاب کن و «ساخت مقایسه» را بزن.</div>
+      <div class="compare-map-card"><div id="compare-map" aria-label="نقشه مقایسه اسلایدی"></div><div class="compare-label left-label" id="compare-left-label">نقشه اول</div><div class="compare-label right-label" id="compare-right-label">نقشه دوم</div></div>
+      <div class="compare-hint">برای استفاده از اسلایدر، هر دو فایل GeoTIFF باید در مسیرهای تعیین‌شده موجود باشند و محدوده جغرافیایی هم‌پوشان داشته باشند.</div>
+    </section>
+
+    <section id="method-section" class="panel-section method-section">
+      <div class="section-heading"><div><div class="section-kicker">METHOD & DATA</div><h2>روش‌شناسی و محدودیت‌ها</h2></div></div>
+      <div class="method-grid">
+        <article class="method-card"><span class="method-number">01</span><h3>شاخص ترکیبی RCPI</h3><p>RCPI از ترکیب TPPI و HEDI با وزن‌های برابر ساخته می‌شود. TPPI شامل دمای روز، دمای شب و NDBI است؛ HEDI از کسری بارش و کسری پوشش گیاهی تشکیل می‌شود.</p></article>
+        <article class="method-card"><span class="method-number">02</span><h3>طبقه‌بندی ثابت</h3><p>آستانه‌های ثبت‌شده سال ۲۰۲۰: P25 = ۰٫۴۴۷۳، P50 = ۰٫۵۱۳۷ و P75 = ۰٫۵۸۰۱. طبقات برای سال‌های بعد نیز با همین حدود محاسبه می‌شوند.</p></article>
+        <article class="method-card"><span class="method-number">03</span><h3>سناریوهای ۲۰۳۵</h3><p>BAU برون‌یابی آماری روند است. SSP2-4.5 و SSP5-8.5 از ناهنجاری‌های اقلیمی CMIP6 استفاده می‌کنند؛ در نسخه فعلی داشبورد، نقشه و آمار فقط پس از درج خروجی واقعی هر سناریو فعال می‌شوند.</p></article>
+      </div>
+      <div class="notice"><strong>هشدار علمی:</strong> سناریوها را نباید به‌عنوان قطعیت آینده معرفی کرد. اگر الگوی مکانی NDVI یا NDBI در سناریو ثابت نگه داشته شده باشد، باید این محدودیت در گزارش نیز ذکر شود. رزولوشن خروجی ۱ کیلومتری به‌خودی‌خود دقت اقلیمی ۱ کیلومتری ایجاد نمی‌کند.</div>
+      <div class="source-row"><span>منبع داده‌های مکانی: Google Earth Engine</span><span>نقشه پایه: OpenStreetMap</span><span>صفحه ایستا: GitHub Pages</span></div>
+    </section>
+  </main>
+
+  <footer class="footer"><div class="footer-brand">RCPI <span>FARS</span></div><div>داشبورد پایش مکانی و آینده‌پژوهی استان فارس</div><div class="footer-small">این صفحه فقط خروجی‌های بارگذاری‌شده و آمار ثبت‌شده را نمایش می‌دهد.</div></footer>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/georaster@1.6.0"></script>
+  <script src="https://unpkg.com/georaster-layer-for-leaflet@4.1.2/dist/v3/webpack/bundle/georaster-layer-for-leaflet.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet-side-by-side@2.2.0/index.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+  <script src="assets/js/dashboard.js"></script>
+</body>
+</html>

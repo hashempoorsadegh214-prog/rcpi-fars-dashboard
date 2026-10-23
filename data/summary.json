@@ -1,0 +1,433 @@
+{
+  "generatedFrom": "Google Earth Engine results supplied in this project; null values intentionally remain empty when the measured result is not available.",
+  "referenceYear": 2020,
+  "thresholds": {
+    "p25": 0.44733662107963823,
+    "p50": 0.5136855179627186,
+    "p75": 0.5800689579648665
+  },
+  "historical": [
+    {
+      "year": 1996,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 1997,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 1998,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 1999,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2000,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2001,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2002,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2003,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2004,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2005,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2006,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2007,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2008,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2009,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2010,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2011,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2012,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2013,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2014,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2015,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2016,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2017,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2018,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2019,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2020,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2021,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2022,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2023,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2024,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "year": 2025,
+      "mean": null,
+      "min": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    }
+  ],
+  "forecasts": [
+    {
+      "key": "bau",
+      "label": "BAU — ادامه روند موجود",
+      "year": 2035,
+      "min": 0.16517203950045264,
+      "mean": 0.5449639634325866,
+      "max": 0.7587967616768755,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "key": "ssp245",
+      "label": "SSP2-4.5 — سناریوی میانه",
+      "year": 2035,
+      "min": null,
+      "mean": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "key": "ssp585",
+      "label": "SSP5-8.5 — سناریوی بدبینانه",
+      "year": 2035,
+      "min": null,
+      "mean": null,
+      "max": null,
+      "classAreasKm2": [
+        null,
+        null,
+        null,
+        null
+      ]
+    }
+  ],
+  "classes": [
+    "کم",
+    "متوسط",
+    "زیاد",
+    "بسیار زیاد"
+  ],
+  "classColors": [
+    "#2ca02c",
+    "#ffbb78",
+    "#ff7f0e",
+    "#d62728"
+  ],
+  "notes": [
+    "Historical year-by-year statistics have not yet been supplied; null values are not estimates.",
+    "BAU statistics are the reported 2035 BAU output from the previous Earth Engine console.",
+    "SSP2-4.5 and SSP5-8.5 statistics must be filled from successful Earth Engine runs.",
+    "The current known thresholds are the 2020 reference-year quantiles."
+  ]
+}
