@@ -325,7 +325,7 @@
     return new window.GeoRasterLayer({
       georaster: raster,
       opacity,
-      resolution: 128,
+      resolution: 256,
       pixelValuesToColorFn: (values) =>
         pixelColor(values, raster, bandName, bandIndex)
     });
