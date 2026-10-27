@@ -1,4 +1,10 @@
-/* RCPI Fars Dashboard — static GitHub Pages app. Fixed Layer & Zoom Behavior. */
+/* RCPI Fars Dashboard — static GitHub Pages app (No GEE)
+   Fixes:
+   - Prevent zoom/pan from triggering year change (no zoom listeners that call render)
+   - Hard-cancel stale raster renders (requestId)
+   - Remove layer overlap: remove old layer immediately before loading new
+   - Keep performance: resolution=128, small LRU cache, no HEAD boot checks
+*/
 (() => {
   'use strict';
 
@@ -7,16 +13,26 @@
   const state = {
     catalog: null,
     summary: null,
+
     mainMap: null,
     compareMap: null,
+
     mainLayer: null,
     compareLayers: [],
     compareControl: null,
+
     charts: {},
-    mainLoadedOnce: false,
-    boundaryLayers: [],
+
+    // IMPORTANT: request cancellation / last-wins rendering
     mainRequestId: 0,
-    mainRenderTimer: null,
+
+    // keep first-fit behavior only once
+    mainLoadedOnce: false,
+
+    // Optional boundary layers
+    boundaryLayers: [],
+
+    // Raster LRU cache (url -> Promise<georaster>)
     rasterCache: new Map()
   };
 
@@ -39,82 +55,74 @@
     { v: 1.0, c: '#d7191c' }
   ];
 
-  function toFa(value, digits = 4) {
-    if (
-      value === null ||
-      value === undefined ||
-      value === '' ||
-      !Number.isFinite(Number(value))
-    ) {
-      return '—';
-    }
+  function setStatus(id, message, kind = 'info') {
+    const el = $(id);
+    if (!el) return;
+    el.className = `status-box ${kind}`;
+    el.textContent = message;
+  }
 
+  function toFa(value, digits = 4) {
+    if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '—';
     return Number(value).toLocaleString('fa-IR', {
       minimumFractionDigits: digits,
       maximumFractionDigits: digits
     });
   }
 
-  function setStatus(id, message, kind = 'info') {
-    const target = $(id);
-    if (!target) return;
-
-    target.className = `status-box ${kind}`;
-    target.textContent = message;
+  function safeNumber(value) {
+    if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return null;
+    return Number(value);
   }
 
+  // ---------- Catalog helpers ----------
   function historicalEntry(year) {
     return {
       key: `historical-${year}`,
       label: `سال ${year}`,
       year,
-      path: state.catalog.historicalTemplate.replace(
-        '{year}',
-        String(year)
-      ),
-      bands: state.catalog.historicalBands || {
-        RCPI: 0,
-        CLASS: 1,
-        TPPI: 2,
-        HEDI: 3
-      },
+      path: state.catalog.historicalTemplate.replace('{year}', String(year)),
+      bands: state.catalog.historicalBands || { RCPI: 0, CLASS: 1, TPPI: 2, HEDI: 3 },
       group: 'historical'
     };
   }
 
   function forecastEntry(key) {
-    return (state.catalog.forecasts || []).find(
-      (item) => item.key === key
-    ) || null;
+    return (state.catalog.forecasts || []).find((item) => item.key === key) || null;
   }
 
   function currentEntry() {
-    const periodVal = $('period-select') ? $('period-select').value : '2020';
+    const select = $('period-select');
+    const val = select ? select.value : '2020';
 
-    if (periodVal === 'bau' || periodVal === 'ssp245' || periodVal === 'ssp585') {
-      return forecastEntry(periodVal);
+    if (val === 'bau' || val === 'ssp245' || val === 'ssp585') {
+      return forecastEntry(val);
     }
-
-    return historicalEntry(Number(periodVal));
+    return historicalEntry(Number(val));
   }
 
   function entryFromToken(token) {
     const [kind, value] = String(token || '').split(':');
-
-    if (kind === 'historical') {
-      return historicalEntry(Number(value));
-    }
-
-    if (kind === 'forecast') {
-      return forecastEntry(value);
-    }
-
+    if (kind === 'historical') return historicalEntry(Number(value));
+    if (kind === 'forecast') return forecastEntry(value);
     return null;
   }
 
-  function colorToRgb(hex) {
-    const clean = hex.replace('#', '');
+  function getBandIndex(entry, bandName) {
+    const mapBands =
+      entry?.bands ||
+      (entry?.group === 'historical' ? state.catalog?.historicalBands : null) ||
+      {};
 
+    if (mapBands[bandName] !== undefined) return Number(mapBands[bandName]);
+
+    const defaults = { RCPI: 0, CLASS: 1, TPPI: 2, HEDI: 3 };
+    return defaults[bandName] ?? 0;
+  }
+
+  // ---------- Color helpers ----------
+  function colorToRgb(hex) {
+    const clean = String(hex).replace('#', '');
     return [
       parseInt(clean.slice(0, 2), 16),
       parseInt(clean.slice(2, 4), 16),
@@ -125,222 +133,132 @@
   function blendColor(a, b, ratio) {
     const ca = colorToRgb(a);
     const cb = colorToRgb(b);
-
-    const rgb = ca.map(
-      (v, i) => Math.round(v + (cb[i] - v) * ratio)
-    );
-
+    const rgb = ca.map((v, i) => Math.round(v + (cb[i] - v) * ratio));
     return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
   }
 
   function continuousColor(value, bandName) {
-    const stops = bandName === 'RCPI'
-      ? RCPI_STOPS
-      : INDEX_STOPS;
-
+    const stops = bandName === 'RCPI' ? RCPI_STOPS : INDEX_STOPS;
     const min = stops[0].v;
     const max = stops[stops.length - 1].v;
 
-    if (value < min || value > max) {
-      return 'rgba(0,0,0,0)';
-    }
+    if (!Number.isFinite(value) || value < min || value > max) return 'rgba(0,0,0,0)';
 
     for (let i = 0; i < stops.length - 1; i += 1) {
       const left = stops[i];
       const right = stops[i + 1];
-
       if (value >= left.v && value <= right.v) {
-        return blendColor(
-          left.c,
-          right.c,
-          (value - left.v) / (right.v - left.v)
-        );
+        return blendColor(left.c, right.c, (value - left.v) / (right.v - left.v));
       }
     }
-
     return stops[stops.length - 1].c;
   }
 
   function pixelColor(values, raster, bandName, bandIndex) {
-    if (!values || values.length <= bandIndex) {
-      return 'rgba(0,0,0,0)';
-    }
+    if (!values || values.length <= bandIndex) return 'rgba(0,0,0,0)';
 
     const value = Number(values[bandIndex]);
+    if (!Number.isFinite(value)) return 'rgba(0,0,0,0)';
 
-    if (!Number.isFinite(value)) {
-      return 'rgba(0,0,0,0)';
-    }
-
-    const noData = raster.noDataValue;
-
-    if (
-      noData !== undefined &&
-      noData !== null &&
-      value === Number(noData)
-    ) {
-      return 'rgba(0,0,0,0)';
-    }
-
-    if (value < -9000) {
-      return 'rgba(0,0,0,0)';
-    }
+    const noData = raster?.noDataValue;
+    if (noData !== undefined && noData !== null && value === Number(noData)) return 'rgba(0,0,0,0)';
+    if (value < -9000) return 'rgba(0,0,0,0)';
 
     if (bandName === 'CLASS') {
       const classId = Math.round(value);
-
-      return classId >= 1 && classId <= 4
-        ? CLASS_COLORS[classId - 1]
-        : 'rgba(0,0,0,0)';
+      return classId >= 1 && classId <= 4 ? CLASS_COLORS[classId - 1] : 'rgba(0,0,0,0)';
     }
 
     return continuousColor(value, bandName);
   }
 
-  function getBandIndex(entry, bandName) {
-    const mapBands =
-      entry.bands ||
-      (
-        entry.group === 'historical'
-          ? state.catalog.historicalBands
-          : null
-      ) ||
-      {};
-
-    if (mapBands[bandName] !== undefined) {
-      return Number(mapBands[bandName]);
-    }
-
-    const defaultIndices = {
-      RCPI: 0,
-      CLASS: 1,
-      TPPI: 2,
-      HEDI: 3
-    };
-
-    return defaultIndices[bandName] ?? 0;
-  }
-
+  // ---------- Raster loading (LRU cache) ----------
   async function getParsedRaster(entry) {
-    if (!entry || !entry.path) {
-      throw new Error(
-        'مسیر فایل نقشه برای این انتخاب تعریف نشده است.'
-      );
-    }
-
+    if (!entry || !entry.path) throw new Error('مسیر فایل نقشه برای این انتخاب تعریف نشده است.');
     if (typeof window.parseGeoraster !== 'function') {
-      throw new Error(
-        'کتابخانه خواندن GeoTIFF بارگذاری نشد؛ اتصال اینترنت را بررسی کنید.'
-      );
+      throw new Error('کتابخانه parseGeoraster بارگذاری نشده است.');
     }
 
     const url = new URL(entry.path, document.baseURI).href;
+
     let rasterPromise = state.rasterCache.get(url);
 
     if (rasterPromise) {
+      // refresh LRU
       state.rasterCache.delete(url);
       state.rasterCache.set(url, rasterPromise);
     } else {
       rasterPromise = (async () => {
-        const response = await fetch(url, { cache: 'force-cache' });
-
-        if (!response.ok) {
-          throw new Error(
-            `فایل نقشه پیدا نشد: ${entry.path}.`
-          );
-        }
-
-        const buffer = await response.arrayBuffer();
+        const res = await fetch(url, { cache: 'force-cache' });
+        if (!res.ok) throw new Error(`فایل نقشه پیدا نشد: ${entry.path}`);
+        const buffer = await res.arrayBuffer();
         return window.parseGeoraster(buffer);
       })();
 
       state.rasterCache.set(url, rasterPromise);
 
+      // LRU limit
       while (state.rasterCache.size > 10) {
-        const oldestUrl = state.rasterCache.keys().next().value;
-        if (oldestUrl === url) break;
-        state.rasterCache.delete(oldestUrl);
+        const oldest = state.rasterCache.keys().next().value;
+        if (oldest === url) break;
+        state.rasterCache.delete(oldest);
       }
     }
 
     try {
       return await rasterPromise;
-    } catch (error) {
-      if (state.rasterCache.get(url) === rasterPromise) {
-        state.rasterCache.delete(url);
-      }
-      throw error;
+    } catch (err) {
+      if (state.rasterCache.get(url) === rasterPromise) state.rasterCache.delete(url);
+      throw err;
     }
   }
 
-  async function loadRasterLayer(
-    entry,
-    bandName,
-    opacity = 0.86
-  ) {
+  async function loadRasterLayer(entry, bandName, opacity) {
     if (typeof window.GeoRasterLayer !== 'function') {
-      throw new Error(
-        'کتابخانه نمایش GeoTIFF بارگذاری نشد؛ صفحه را تازه‌سازی کنید.'
-      );
+      throw new Error('کتابخانه GeoRasterLayer بارگذاری نشده است.');
     }
 
     const raster = await getParsedRaster(entry);
     const bandIndex = getBandIndex(entry, bandName);
 
-    if (
-      !Number.isInteger(bandIndex) ||
-      bandIndex < 0 ||
-      (
-        raster.numberOfRasters &&
-        bandIndex >= raster.numberOfRasters
-      )
-    ) {
-      throw new Error(
-        `باند ${bandName} در فایل ${entry.path} وجود ندارد.`
-      );
+    // Basic bounds check
+    const n = raster?.numberOfRasters;
+    if (!Number.isInteger(bandIndex) || bandIndex < 0 || (Number.isFinite(n) && bandIndex >= n)) {
+      throw new Error(`باند ${bandName} در فایل ${entry.path} وجود ندارد.`);
     }
 
     return new window.GeoRasterLayer({
       georaster: raster,
       opacity,
+      // performance
       resolution: 128,
-      pixelValuesToColorFn: (values) =>
-        pixelColor(values, raster, bandName, bandIndex)
+      pixelValuesToColorFn: (values) => pixelColor(values, raster, bandName, bandIndex)
     });
   }
 
-  function periodCurrentLabel() {
-    const select = $('period-select');
-    if (!select) return 'نقشه انتخاب‌شده';
-    const selectedOption = select.options[select.selectedIndex];
-    return selectedOption ? selectedOption.text : 'نقشه انتخاب‌شده';
-  }
-
+  // ---------- Legend ----------
   function legendRows(bandName) {
     if (bandName === 'CLASS') {
       return CLASS_LABELS.map(
-        (label, index) =>
-          `<div class="legend-item">` +
-          `<span class="legend-swatch" style="background:${CLASS_COLORS[index]}"></span>` +
-          `<span>کلاس ${index + 1}: ${label}</span>` +
-          `</div>`
+        (label, idx) =>
+          `<div class="legend-item">
+             <span class="legend-swatch" style="background:${CLASS_COLORS[idx]}"></span>
+             <span>کلاس ${idx + 1}: ${label}</span>
+           </div>`
       ).join('');
     }
 
-    const stops = bandName === 'RCPI'
-      ? RCPI_STOPS
-      : INDEX_STOPS;
-
+    const stops = bandName === 'RCPI' ? RCPI_STOPS : INDEX_STOPS;
     const unit = bandName === 'RCPI' ? 'RCPI' : bandName;
 
-    return (
-      `<div class="legend-gradient"></div>` +
-      `<div class="legend-scale">` +
-      `<span>${toFa(stops[0].v, 2)}</span>` +
-      `<span>${unit}</span>` +
-      `<span>${toFa(stops[stops.length - 1].v, 2)}</span>` +
-      `</div>`
-    );
+    return `
+      <div class="legend-gradient"></div>
+      <div class="legend-scale">
+        <span>${toFa(stops[0].v, 2)}</span>
+        <span>${unit}</span>
+        <span>${toFa(stops[stops.length - 1].v, 2)}</span>
+      </div>
+    `;
   }
 
   function updateLegend(bandName) {
@@ -350,120 +268,121 @@
       TPPI: 'مقدار TPPI',
       HEDI: 'مقدار HEDI'
     };
-
-    $('legend-title').textContent = titles[bandName] || 'راهنما';
-    $('legend-content').innerHTML = legendRows(bandName);
-    $('map-band-caption').textContent = titles[bandName] || bandName;
+    if ($('legend-title')) $('legend-title').textContent = titles[bandName] || 'راهنما';
+    if ($('legend-content')) $('legend-content').innerHTML = legendRows(bandName);
+    if ($('map-band-caption')) $('map-band-caption').textContent = titles[bandName] || bandName;
   }
 
-  async function renderMainMap() {
-    const requestId = ++state.mainRequestId;
-    const button = $('load-map-btn');
+  function periodCurrentLabel() {
+    const select = $('period-select');
+    if (!select) return 'نقشه انتخاب‌شده';
+    const opt = select.options[select.selectedIndex];
+    return opt ? opt.text : 'نقشه انتخاب‌شده';
+  }
+
+  // ---------- MAIN MAP RENDER (key fix) ----------
+  async function renderMainMap({ fitOnce = false } = {}) {
     const entry = currentEntry();
-    const bandName = $('band-select').value;
-    const opacity = Number($('opacity-select').value) / 100;
+    const bandName = $('band-select') ? $('band-select').value : 'CLASS';
+    const opacity = $('opacity-select') ? Number($('opacity-select').value) / 100 : 0.86;
+
     const title = periodCurrentLabel();
 
-    button.disabled = true;
+    // increment requestId (last request wins)
+    const requestId = ++state.mainRequestId;
 
-    setStatus(
-      'map-status',
-      `در حال بارگذاری «${title}»…`,
-      'info'
-    );
-
-    $('map-title').textContent = title;
-    $('map-subtitle').textContent = `${bandName} · GeoTIFF`;
+    if ($('map-title')) $('map-title').textContent = title;
+    if ($('map-subtitle')) $('map-subtitle').textContent = `${bandName} · GeoTIFF`;
 
     updateLegend(bandName);
 
+    const btn = $('load-map-btn');
+    if (btn) btn.disabled = true;
+
+    setStatus('map-status', `در حال بارگذاری «${title}»…`, 'info');
+
     try {
-      if (!entry) {
-        throw new Error('برای انتخاب فعلی، نقشه‌ای در فهرست تعریف نشده است.');
+      if (!entry) throw new Error('برای انتخاب فعلی، نقشه‌ای تعریف نشده است.');
+      if (!state.mainMap) throw new Error('نقشه اصلی مقداردهی نشده است.');
+
+      // IMPORTANT: remove old layer immediately to prevent overlap illusion
+      if (state.mainLayer && state.mainMap.hasLayer(state.mainLayer)) {
+        state.mainMap.removeLayer(state.mainLayer);
+        state.mainLayer = null;
       }
 
-      const newLayer = await loadRasterLayer(
-        entry,
-        bandName,
-        opacity
-      );
+      const newLayer = await loadRasterLayer(entry, bandName, opacity);
 
+      // If another request started while we awaited, drop this layer
       if (requestId !== state.mainRequestId) return;
 
-      const oldLayer = state.mainLayer;
-
       newLayer.addTo(state.mainMap);
-
-      if (oldLayer) {
-        state.mainMap.removeLayer(oldLayer);
-      }
-
       state.mainLayer = newLayer;
 
-      // Fit bounds فقط در اولین بارگذاری اجرا شود تا با زوم کردن نقشه مجدد پرش نکند
-      if (!state.mainLoadedOnce) {
-        state.mainMap.fitBounds(
-          newLayer.getBounds(),
-          {
-            padding: [16, 16],
-            maxZoom: 8
-          }
-        );
-
+      // Fit bounds only once (or when explicitly requested)
+      if (!state.mainLoadedOnce || fitOnce) {
+        const bounds = newLayer.getBounds();
+        state.mainMap.fitBounds(bounds, { padding: [16, 16], maxZoom: 8 });
         state.mainLoadedOnce = true;
       }
 
-      setStatus(
-        'map-status',
-        `نقشه «${title}» نمایش داده شد.`,
-        'success'
-      );
-    } catch (error) {
+      setStatus('map-status', `نقشه «${title}» نمایش داده شد.`, 'success');
+    } catch (err) {
       if (requestId !== state.mainRequestId) return;
-
-      let message = error.message || 'بارگذاری نقشه ناموفق بود.';
-
-      if (state.mainLayer) {
-        message += ' نقشه قبلی حفظ شده است.';
-      }
-
-      setStatus('map-status', message, 'warning');
+      setStatus('map-status', err?.message || 'بارگذاری نقشه ناموفق بود.', 'warning');
     } finally {
-      if (requestId === state.mainRequestId) {
-        button.disabled = false;
-      }
+      if (requestId === state.mainRequestId && btn) btn.disabled = false;
     }
   }
 
+  // ---------- Maps init ----------
   function initMainMap() {
-    const center = state.catalog.mapCenter || [29.3, 53.0];
-    const zoom = state.catalog.mapZoom || 6.5;
+    const center = state.catalog?.mapCenter || [29.3, 53.0];
+    const zoom = state.catalog?.mapZoom || 6.5;
 
     state.mainMap = L.map('main-map', {
       zoomControl: true,
       preferCanvas: true
     }).setView(center, zoom);
 
-    L.tileLayer(
-      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      {
-        maxZoom: 18,
-        attribution: '&copy; OpenStreetMap'
-      }
-    ).addTo(state.mainMap);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(state.mainMap);
 
     state.mainMap.attributionControl.setPrefix('');
+
+    // IMPORTANT: do NOT call renderMainMap on zoomend/moveend
+    // (We intentionally add no handlers here.)
+  }
+
+  function initCompareMap() {
+    const center = state.catalog?.mapCenter || [29.3, 53.0];
+    const zoom = state.catalog?.mapZoom || 6.5;
+
+    state.compareMap = L.map('compare-map', {
+      zoomControl: true,
+      keyboard: false,
+      preferCanvas: true
+    }).setView(center, zoom);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(state.compareMap);
+
+    state.compareMap.attributionControl.setPrefix('');
   }
 
   async function loadOptionalBoundary() {
     try {
-      const response = await fetch('data/fars.geojson', { cache: 'force-cache' });
-      if (!response.ok) return;
-
-      const geojson = await response.json();
+      const res = await fetch('data/fars.geojson', { cache: 'force-cache' });
+      if (!res.ok) return;
+      const geojson = await res.json();
 
       [state.mainMap, state.compareMap].forEach((map) => {
         if (!map) return;
+
         map.createPane('farsBoundaryPane');
         map.getPane('farsBoundaryPane').style.zIndex = 650;
 
@@ -479,73 +398,45 @@
 
         state.boundaryLayers.push(outline);
       });
-    } catch (_err) {}
+    } catch (_) {}
   }
 
-  function initCompareMap() {
-    const center = state.catalog.mapCenter || [29.3, 53.0];
-    const zoom = state.catalog.mapZoom || 6.5;
-
-    state.compareMap = L.map('compare-map', {
-      zoomControl: true,
-      keyboard: false,
-      preferCanvas: true
-    }).setView(center, zoom);
-
-    L.tileLayer(
-      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      {
-        maxZoom: 18,
-        attribution: '&copy; OpenStreetMap'
-      }
-    ).addTo(state.compareMap);
-
-    state.compareMap.attributionControl.setPrefix('');
-  }
-
+  // ---------- Compare ----------
   function populateCompareSelects() {
-    const historical = (state.catalog.historicalYears || [])
+    const historical = (state.catalog?.historicalYears || [])
       .slice()
       .reverse()
-      .map((year) => ({
-        value: `historical:${year}`,
-        label: `سال ${year}`
-      }));
+      .map((year) => ({ value: `historical:${year}`, label: `سال ${year}` }));
 
-    const future = (state.catalog.forecasts || []).map(
-      (item) => ({
-        value: `forecast:${item.key}`,
-        label: item.label
-      })
-    );
+    const future = (state.catalog?.forecasts || []).map((item) => ({
+      value: `forecast:${item.key}`,
+      label: item.label
+    }));
 
     const all = [...historical, ...future];
+    const options = all.map((it) => `<option value="${it.value}">${it.label}</option>`).join('');
 
-    const options = all.map(
-      (item) => `<option value="${item.value}">${item.label}</option>`
-    ).join('');
+    if ($('compare-left')) $('compare-left').innerHTML = options;
+    if ($('compare-right')) $('compare-right').innerHTML = options;
 
-    $('compare-left').innerHTML = options;
-    $('compare-right').innerHTML = options;
-
-    $('compare-left').value = 'historical:2020';
-    $('compare-right').value = 'forecast:bau';
+    if ($('compare-left')) $('compare-left').value = 'historical:2020';
+    if ($('compare-right')) $('compare-right').value = 'forecast:bau';
   }
 
   async function renderCompare() {
-    const leftEntry = entryFromToken($('compare-left').value);
-    const rightEntry = entryFromToken($('compare-right').value);
-    const band = $('compare-band').value;
-    const button = $('compare-btn');
+    const leftEntry = entryFromToken($('compare-left')?.value);
+    const rightEntry = entryFromToken($('compare-right')?.value);
+    const band = $('compare-band') ? $('compare-band').value : 'CLASS';
+    const btn = $('compare-btn');
 
-    if (!leftEntry || !rightEntry) return;
+    if (!leftEntry || !rightEntry || !state.compareMap) return;
 
     if (leftEntry.path === rightEntry.path) {
       setStatus('compare-status', 'دو نقشه متفاوت انتخاب کنید.', 'warning');
       return;
     }
 
-    button.disabled = true;
+    if (btn) btn.disabled = true;
     setStatus('compare-status', 'در حال آماده‌سازی لایه‌ها…', 'info');
 
     try {
@@ -568,25 +459,15 @@
       state.compareControl = L.control.sideBySide(leftLayer, rightLayer).addTo(state.compareMap);
 
       setStatus('compare-status', 'مقایسه آماده است.', 'success');
-    } catch (error) {
-      setStatus('compare-status', error.message || 'خطا در بارگذاری.', 'warning');
+    } catch (err) {
+      setStatus('compare-status', err?.message || 'خطا در بارگذاری.', 'warning');
     } finally {
-      button.disabled = false;
+      if (btn) btn.disabled = false;
     }
   }
 
-  function safeNumber(value) {
-    return (
-      value === null ||
-      value === undefined ||
-      value === '' ||
-      !Number.isFinite(Number(value))
-    )
-      ? null
-      : Number(value);
-  }
-
-  function chartBaseOptions(yLabel = 'مقدار RCPI') {
+  // ---------- Charts/KPIs (as before; keep minimal & safe) ----------
+  function chartBaseOptions(yLabel = 'مقدار') {
     return {
       responsive: true,
       maintainAspectRatio: false,
@@ -616,6 +497,13 @@
   }
 
   function createOrUpdateChart(key, canvasId, config) {
+    if (!window.Chart) return;
+    const canvas = $(canvasId);
+    if (!canvas) return;
+
+    Chart.defaults.font.family = 'Vazirmatn';
+    Chart.defaults.color = '#9aaabe';
+
     if (state.charts[key]) {
       state.charts[key].data = config.data;
       state.charts[key].options = config.options;
@@ -623,27 +511,22 @@
       return;
     }
 
-    const canvas = $(canvasId);
-    if (!canvas || typeof Chart !== 'function') return;
-
-    Chart.defaults.font.family = 'Vazirmatn';
-    Chart.defaults.color = '#9aaabe';
-
     state.charts[key] = new Chart(canvas, config);
   }
 
   function renderCharts() {
-    if (!state.summary || typeof Chart !== 'function') return;
+    if (!state.summary || !window.Chart) return;
+
     const summary = state.summary;
 
     const years = Array.from({ length: 40 }, (_, i) => 1996 + i);
-    const historic = new Map((summary.historical || []).map((item) => [Number(item.year), safeNumber(item.mean)]));
+    const historic = new Map((summary.historical || []).map((it) => [Number(it.year), safeNumber(it.mean)]));
     const forecastList = summary.forecasts || [];
-    const forecastByKey = new Map(forecastList.map((item) => [item.key, item]));
+    const forecastByKey = new Map(forecastList.map((it) => [it.key, it]));
 
     const trendDatasets = [{
       label: 'میانگین تاریخی RCPI',
-      data: years.map((year) => (year <= 2025 ? historic.get(year) ?? null : null)),
+      data: years.map((y) => (y <= 2025 ? (historic.get(y) ?? null) : null)),
       borderColor: '#53a7dc',
       backgroundColor: 'rgba(83,167,220,.15)',
       borderWidth: 2,
@@ -655,155 +538,169 @@
       { key: 'bau', label: 'BAU 2035', color: '#d93b49' },
       { key: 'ssp245', label: 'SSP2-4.5 2035', color: '#f3bd4f' },
       { key: 'ssp585', label: 'SSP5-8.5 2035', color: '#ff7f0e' }
-    ].forEach((scenario) => {
-      const result = forecastByKey.get(scenario.key);
+    ].forEach((sc) => {
+      const r = forecastByKey.get(sc.key);
       trendDatasets.push({
-        label: scenario.label,
-        data: years.map((year) => (year === 2035 ? safeNumber(result?.mean) : null)),
-        borderColor: scenario.color,
-        backgroundColor: scenario.color,
+        label: sc.label,
+        data: years.map((y) => (y === 2035 ? safeNumber(r?.mean) : null)),
+        borderColor: sc.color,
+        backgroundColor: sc.color,
         pointRadius: 5,
         showLine: false
       });
     });
 
     const trendOptions = chartBaseOptions('میانگین RCPI');
-    trendOptions.scales.x.ticks.callback = (_, index) => (index % 4 === 0 || index === 39 ? years[index] : '');
+    trendOptions.scales.x.ticks.callback = (_, idx) => (idx % 4 === 0 || idx === 39 ? years[idx] : '');
 
     createOrUpdateChart('trend', 'trend-chart', {
       type: 'line',
-      data: { labels: years.map((year) => String(year)), datasets: trendDatasets },
+      data: { labels: years.map(String), datasets: trendDatasets },
       options: trendOptions
     });
-
-    const scenarioOptions = chartBaseOptions('میانگین RCPI');
-    scenarioOptions.scales.y.min = 0;
-    scenarioOptions.scales.y.max = 1;
 
     createOrUpdateChart('scenario', 'scenario-chart', {
       type: 'bar',
       data: {
-        labels: forecastList.map((item) => item.label.replace(' — ', '\n')),
-        datasets: [{ label: 'میانگین RCPI', data: forecastList.map((item) => safeNumber(item.mean)), backgroundColor: ['#d93b49', '#f3bd4f', '#ff7f0e'], borderRadius: 7 }]
+        labels: forecastList.map((it) => String(it.label).replace(' — ', '\n')),
+        datasets: [{
+          label: 'میانگین RCPI',
+          data: forecastList.map((it) => safeNumber(it.mean)),
+          backgroundColor: ['#d93b49', '#f3bd4f', '#ff7f0e'],
+          borderRadius: 7
+        }]
       },
-      options: scenarioOptions
+      options: (() => {
+        const o = chartBaseOptions('میانگین RCPI');
+        o.scales.y.min = 0;
+        o.scales.y.max = 1;
+        return o;
+      })()
     });
 
     const thresholds = summary.thresholds || {};
-    const thresholdOptions = chartBaseOptions('مقدار آستانه');
-    thresholdOptions.plugins.legend.display = false;
-    thresholdOptions.scales.y.min = 0;
-    thresholdOptions.scales.y.max = 1;
-
     createOrUpdateChart('thresholds', 'threshold-chart', {
       type: 'bar',
       data: {
         labels: ['P25', 'P50', 'P75'],
-        datasets: [{ label: 'آستانه RCPI', data: [safeNumber(thresholds.p25), safeNumber(thresholds.p50), safeNumber(thresholds.p75)], backgroundColor: ['#2ca02c', '#ffbb78', '#d62728'], borderRadius: 7 }]
+        datasets: [{
+          label: 'آستانه RCPI',
+          data: [safeNumber(thresholds.p25), safeNumber(thresholds.p50), safeNumber(thresholds.p75)],
+          backgroundColor: ['#2ca02c', '#ffbb78', '#d62728'],
+          borderRadius: 7
+        }]
       },
-      options: thresholdOptions
+      options: (() => {
+        const o = chartBaseOptions('مقدار آستانه');
+        o.plugins.legend.display = false;
+        o.scales.y.min = 0;
+        o.scales.y.max = 1;
+        return o;
+      })()
     });
 
+    // area chart based on active period
     const periodVal = $('period-select') ? $('period-select').value : '2020';
-    let activeAreaRow = (periodVal === 'bau' || periodVal === 'ssp245' || periodVal === 'ssp585')
-      ? forecastByKey.get(periodVal)
-      : (summary.historical || []).find((row) => Number(row.year) === Number(periodVal));
+    const activeRow =
+      (periodVal === 'bau' || periodVal === 'ssp245' || periodVal === 'ssp585')
+        ? forecastByKey.get(periodVal)
+        : (summary.historical || []).find((row) => Number(row.year) === Number(periodVal));
 
-    const areas = activeAreaRow?.classAreasKm2 || [null, null, null, null];
+    const areas = activeRow?.classAreasKm2 || [null, null, null, null];
 
     createOrUpdateChart('area', 'area-chart', {
       type: 'bar',
       data: {
         labels: summary.classes || CLASS_LABELS,
-        datasets: [{ label: 'مساحت (کیلومترمربع)', data: areas.map(safeNumber), backgroundColor: summary.classColors || CLASS_COLORS, borderRadius: 7 }]
+        datasets: [{
+          label: 'مساحت (کیلومترمربع)',
+          data: areas.map(safeNumber),
+          backgroundColor: summary.classColors || CLASS_COLORS,
+          borderRadius: 7
+        }]
       },
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
-    });
-
-    const validAreas = areas.map(safeNumber);
-    const totalArea = validAreas.reduce((sum, v) => sum + (v || 0), 0);
-    const percentages = totalArea > 0 ? validAreas.map(v => v !== null ? Number(((v / totalArea) * 100).toFixed(1)) : null) : [null, null, null, null];
-
-    createOrUpdateChart('donut', 'class-donut-chart', {
-      type: 'doughnut',
-      data: {
-        labels: (summary.classes || CLASS_LABELS).map((label, idx) => `کلاس ${idx + 1}: ${label}`),
-        datasets: [{ data: percentages, backgroundColor: summary.classColors || CLASS_COLORS, borderWidth: 2, borderColor: '#1e293b' }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: '62%',
-        plugins: {
-          legend: { position: 'bottom', rtl: true, labels: { color: '#c5d0df', font: { family: 'Vazirmatn', size: 10 }, usePointStyle: true } }
-        }
-      }
     });
   }
 
   function renderKpis() {
     const thresholds = state.summary?.thresholds || {};
-    const bau = (state.summary?.forecasts || []).find((item) => item.key === 'bau');
+    const bau = (state.summary?.forecasts || []).find((it) => it.key === 'bau');
 
-    $('kpi-p25').textContent = toFa(thresholds.p25);
-    $('kpi-p50').textContent = toFa(thresholds.p50);
-    $('kpi-p75').textContent = toFa(thresholds.p75);
-    $('kpi-bau-mean').textContent = toFa(bau?.mean);
+    if ($('kpi-p25')) $('kpi-p25').textContent = toFa(thresholds.p25);
+    if ($('kpi-p50')) $('kpi-p50').textContent = toFa(thresholds.p50);
+    if ($('kpi-p75')) $('kpi-p75').textContent = toFa(thresholds.p75);
+    if ($('kpi-bau-mean')) $('kpi-bau-mean').textContent = toFa(bau?.mean);
   }
 
+  // ---------- Controls ----------
   function setupControls() {
-    $('period-select').addEventListener('change', () => {
-      $('map-title').textContent = periodCurrentLabel();
+    // Only these events trigger map render:
+    //  - changing period
+    //  - changing band
+    //  - clicking load button
+    // Zoom should never call renderMainMap.
+    $('period-select')?.addEventListener('change', () => {
+      if ($('map-title')) $('map-title').textContent = periodCurrentLabel();
       renderCharts();
       renderMainMap();
     });
 
-    $('load-map-btn').addEventListener('click', renderMainMap);
-
-    $('band-select').addEventListener('change', () => {
+    $('band-select')?.addEventListener('change', () => {
       updateLegend($('band-select').value);
       renderMainMap();
     });
 
-    $('opacity-select').addEventListener('input', () => {
-      $('opacity-output').textContent = `${Number($('opacity-select').value).toLocaleString('fa-IR')}٪`;
+    $('load-map-btn')?.addEventListener('click', () => renderMainMap({ fitOnce: false }));
+
+    $('opacity-select')?.addEventListener('input', () => {
+      const v = Number($('opacity-select').value);
+      if ($('opacity-output')) $('opacity-output').textContent = `${v.toLocaleString('fa-IR')}٪`;
       if (state.mainLayer && typeof state.mainLayer.setOpacity === 'function') {
-        state.mainLayer.setOpacity(Number($('opacity-select').value) / 100);
+        state.mainLayer.setOpacity(v / 100);
       }
     });
 
-    $('compare-btn').addEventListener('click', renderCompare);
+    $('compare-btn')?.addEventListener('click', renderCompare);
   }
 
+  // ---------- Boot ----------
   async function boot() {
     try {
-      const [catalogResponse, summaryResponse] = await Promise.all([
+      const [catalogRes, summaryRes] = await Promise.all([
         fetch('data/map_catalog.json', { cache: 'force-cache' }),
         fetch('data/summary.json', { cache: 'force-cache' })
       ]);
 
-      if (!catalogResponse.ok || !summaryResponse.ok) return;
+      if (!catalogRes.ok) throw new Error('map_catalog.json بارگذاری نشد.');
+      if (!summaryRes.ok) throw new Error('summary.json بارگذاری نشد.');
 
-      state.catalog = await catalogResponse.json();
-      state.summary = await summaryResponse.json();
+      state.catalog = await catalogRes.json();
+      state.summary = await summaryRes.json();
 
-      populateCompareSelects();
       initMainMap();
       initCompareMap();
+
+      populateCompareSelects();
       await loadOptionalBoundary();
 
       setupControls();
+
       renderKpis();
       renderCharts();
-      updateLegend('CLASS');
 
+      // default legend & initial render
+      updateLegend($('band-select')?.value || 'CLASS');
+
+      // ensure leaflet sizes computed then render + fit once
       setTimeout(() => {
-        state.mainMap.invalidateSize();
-        state.compareMap.invalidateSize();
-        renderMainMap();
-      }, 100);
-    } catch (error) {
-      console.error(error);
+        state.mainMap?.invalidateSize();
+        state.compareMap?.invalidateSize();
+        renderMainMap({ fitOnce: true });
+      }, 80);
+    } catch (err) {
+      console.error(err);
+      setStatus('map-status', err?.message || 'خطا در راه‌اندازی داشبورد.', 'warning');
     }
   }
 
