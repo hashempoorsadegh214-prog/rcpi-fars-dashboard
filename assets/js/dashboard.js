@@ -89,13 +89,13 @@
   }
 
   function currentEntry() {
-    const source = $('source-select').value;
+    const periodVal = $('period-select') ? $('period-select').value : '2020';
 
-    if (source === 'historical') {
-      return historicalEntry(Number($('year-select').value));
+    if (periodVal === 'bau' || periodVal === 'ssp245' || periodVal === 'ssp585') {
+      return forecastEntry(periodVal);
     }
 
-    return forecastEntry(source);
+    return historicalEntry(Number(periodVal));
   }
 
   function entryFromToken(token) {
@@ -250,7 +250,6 @@
     let rasterPromise = state.rasterCache.get(url);
 
     if (rasterPromise) {
-      // Refresh this item in the small cache.
       state.rasterCache.delete(url);
       state.rasterCache.set(url, rasterPromise);
     } else {
@@ -262,7 +261,7 @@
         if (!response.ok) {
           throw new Error(
             `فایل نقشه پیدا نشد: ${entry.path}. ` +
-            'این سال تا زمان بارگذاری GeoTIFF در مخزن قابل نمایش نیست.'
+            'این دوره تا زمان بارگذاری GeoTIFF در مخزن قابل نمایش نیست.'
           );
         }
 
@@ -273,12 +272,9 @@
 
       state.rasterCache.set(url, rasterPromise);
 
-      // Keep only two raster datasets to avoid excessive browser memory use.
-      while (state.rasterCache.size > 2) {
+      while (state.rasterCache.size > 8) {
         const oldestUrl = state.rasterCache.keys().next().value;
-
         if (oldestUrl === url) break;
-
         state.rasterCache.delete(oldestUrl);
       }
     }
@@ -289,7 +285,6 @@
       if (state.rasterCache.get(url) === rasterPromise) {
         state.rasterCache.delete(url);
       }
-
       throw error;
     }
   }
@@ -331,7 +326,6 @@
     });
   }
 
-  // Check which historical GeoTIFFs actually exist.
   async function findAvailableHistoricalYears() {
     const configuredYears = (state.catalog.historicalYears || [])
       .map(Number)
@@ -352,18 +346,15 @@
 
     const availability = new Map();
     let cursor = 0;
-
     const workerCount = Math.min(6, configuredYears.length);
 
     async function worker() {
       while (cursor < configuredYears.length) {
         const year = configuredYears[cursor++];
-
         const path = state.catalog.historicalTemplate.replace(
           '{year}',
           String(year)
         );
-
         const url = new URL(path, document.baseURI).href;
 
         try {
@@ -396,7 +387,6 @@
       (year) => availability.get(year) === true
     );
 
-    // If HEAD checks are blocked, keep the configured years.
     if (confirmedAvailable.length) {
       state.catalog.historicalYears = configuredYears.filter(
         (year) => availability.get(year) !== false
@@ -404,14 +394,11 @@
     }
   }
 
-  function sourceLabel(source, year) {
-    if (source === 'historical') {
-      return `سری تاریخی — ${year}`;
-    }
-
-    const item = forecastEntry(source);
-
-    return item ? item.label : 'نقشه انتخاب‌شده';
+  function periodCurrentLabel() {
+    const select = $('period-select');
+    if (!select) return 'نقشه انتخاب‌شده';
+    const selectedOption = select.options[select.selectedIndex];
+    return selectedOption ? selectedOption.text : 'نقشه انتخاب‌شده';
   }
 
   function legendRows(bandName) {
@@ -456,14 +443,11 @@
 
   async function renderMainMap() {
     const requestId = ++state.mainRequestId;
-
     const button = $('load-map-btn');
-    const source = $('source-select').value;
-    const selectedYear = $('year-select').value;
     const entry = currentEntry();
     const bandName = $('band-select').value;
     const opacity = Number($('opacity-select').value) / 100;
-    const title = sourceLabel(source, selectedYear);
+    const title = periodCurrentLabel();
 
     button.disabled = true;
 
@@ -491,7 +475,6 @@
         opacity
       );
 
-      // Ignore an older request if a newer selection was made.
       if (requestId !== state.mainRequestId) return;
 
       const oldLayer = state.mainLayer;
@@ -504,8 +487,6 @@
 
       state.mainLayer = newLayer;
 
-      // Fit bounds only at the first successful load.
-      // Keep the current zoom when switching between years.
       if (!state.mainLoadedOnce) {
         state.mainMap.fitBounds(
           newLayer.getBounds(),
@@ -612,12 +593,11 @@
         }
       });
     } catch (_optionalBoundaryError) {
-      // Optional file. Raster masks still control the study area.
+      // Optional boundary
     }
   }
 
   function enableHorizontalOnlyPan(map) {
-    // Allow horizontal dragging on the comparison map, not vertical dragging.
     map.dragging.disable();
 
     const container = map.getContainer();
@@ -728,7 +708,6 @@
       control._divider ||
       map.getContainer().querySelector('.leaflet-sbs-divider');
 
-    // Set the slider overlay to the map's exact origin and size.
     if (wrapper) {
       Object.assign(wrapper.style, {
         position: 'absolute',
@@ -768,7 +747,6 @@
       divider.style.pointerEvents = 'none';
     }
 
-    // Recalculate the clipping of both layers after view changes.
     if (typeof control._updateClip === 'function') {
       control._updateClip();
     }
@@ -799,7 +777,6 @@
 
     enableHorizontalOnlyPan(state.compareMap);
 
-    // Keep layer clipping synchronized with zoom, movement and resize.
     state.compareMap.on(
       'zoomend moveend resize viewreset',
       () => {
@@ -808,22 +785,6 @@
         );
       }
     );
-  }
-
-  function populateYearSelect() {
-    const years = (state.catalog.historicalYears || [])
-      .slice()
-      .sort((a, b) => b - a);
-
-    $('year-select').innerHTML = years.map(
-      (year) => `<option value="${year}">${year}</option>`
-    ).join('');
-
-    if (years.includes(2020)) {
-      $('year-select').value = '2020';
-    } else if (years.length) {
-      $('year-select').value = String(years[0]);
-    }
   }
 
   function populateCompareSelects() {
@@ -889,7 +850,6 @@
     );
 
     try {
-      // Check the slider plugin before creating map layers.
       if (typeof L.control?.sideBySide !== 'function') {
         throw new Error(
           'افزونه اسلایدر مقایسه بارگذاری نشد. آدرس افزونه در index.html را بررسی کن.'
@@ -921,7 +881,6 @@
 
       configureCompareSlider();
 
-      // Fit the combined extent of both raster layers.
       const combinedBounds = leftLayer
         .getBounds()
         .extend(rightLayer.getBounds());
@@ -951,7 +910,6 @@
         configureCompareSlider();
       }, 150);
     } catch (error) {
-      // Remove any incomplete comparison layers after a failed attempt.
       if (state.compareControl) {
         state.compareMap.removeControl(state.compareControl);
         state.compareControl = null;
@@ -1073,6 +1031,7 @@
 
     const summary = state.summary;
 
+    // ۱. نمودار ۳۰ ساله روند تاریخی (۱۹۹۶ تا ۲۰۳۵) - بدون حذف
     const years = Array.from(
       { length: 40 },
       (_, i) => 1996 + i
@@ -1088,7 +1047,6 @@
     );
 
     const forecastList = summary.forecasts || [];
-
     const forecastByKey = new Map(
       forecastList.map((item) => [item.key, item])
     );
@@ -1109,21 +1067,9 @@
     }];
 
     [
-      {
-        key: 'bau',
-        label: 'BAU 2035',
-        color: '#d93b49'
-      },
-      {
-        key: 'ssp245',
-        label: 'SSP2-4.5 2035',
-        color: '#f3bd4f'
-      },
-      {
-        key: 'ssp585',
-        label: 'SSP5-8.5 2035',
-        color: '#ff7f0e'
-      }
+      { key: 'bau', label: 'BAU 2035', color: '#d93b49' },
+      { key: 'ssp245', label: 'SSP2-4.5 2035', color: '#f3bd4f' },
+      { key: 'ssp585', label: 'SSP5-8.5 2035', color: '#ff7f0e' }
     ].forEach((scenario) => {
       const result = forecastByKey.get(scenario.key);
 
@@ -1143,7 +1089,6 @@
     });
 
     const trendOptions = chartBaseOptions('میانگین RCPI');
-
     trendOptions.scales.x.ticks.callback = (_, index) => {
       return index % 4 === 0 || index === 39
         ? years[index]
@@ -1159,6 +1104,7 @@
       options: trendOptions
     });
 
+    // ۲. نمودار مقایسه سناریوهای ۲۰۳۵
     const scenarioOptions = chartBaseOptions('میانگین RCPI');
     scenarioOptions.scales.y.min = 0;
     scenarioOptions.scales.y.max = 1;
@@ -1186,6 +1132,7 @@
       options: scenarioOptions
     });
 
+    // ۳. نمودار آستانه‌های طبقه‌بندی مرجع
     const thresholds = summary.thresholds || {};
     const thresholdOptions = chartBaseOptions('مقدار آستانه');
 
@@ -1216,24 +1163,22 @@
       options: thresholdOptions
     });
 
-    const chosenSource = $('source-select')?.value || 'historical';
-
+    // ۴. تشخیص دوره انتخابی فعلی برای مساحت و نمودار دوناتی
+    const periodVal = $('period-select') ? $('period-select').value : '2020';
     let activeAreaRow = null;
 
-    if (chosenSource === 'historical') {
-      activeAreaRow = (summary.historical || []).find(
-        (row) =>
-          Number(row.year) === Number($('year-select')?.value)
-      );
+    if (periodVal === 'bau' || periodVal === 'ssp245' || periodVal === 'ssp585') {
+      activeAreaRow = forecastByKey.get(periodVal) || null;
     } else {
-      activeAreaRow = forecastByKey.get(chosenSource) || null;
+      activeAreaRow = (summary.historical || []).find(
+        (row) => Number(row.year) === Number(periodVal)
+      );
     }
 
-    const areas = activeAreaRow?.classAreasKm2 ||
-      [null, null, null, null];
+    const areas = activeAreaRow?.classAreasKm2 || [null, null, null, null];
 
+    // ۴-الف: نمودار میله‌ای مساحت طبقات (کیلومتر مربع)
     const areaOptions = chartBaseOptions('مساحت (km²)');
-
     areaOptions.plugins.legend.display = false;
     areaOptions.scales.y.min = 0;
 
@@ -1252,6 +1197,52 @@
       options: areaOptions
     });
 
+    // ۴-ب: نمودار دوناتی درصد کلاس‌های فشار اقلیمی
+    const validAreas = areas.map(safeNumber);
+    const totalArea = validAreas.reduce((sum, v) => sum + (v || 0), 0);
+    const percentages = totalArea > 0
+      ? validAreas.map(v => v !== null ? Number(((v / totalArea) * 100).toFixed(1)) : null)
+      : [null, null, null, null];
+
+    createOrUpdateChart('donut', 'class-donut-chart', {
+      type: 'doughnut',
+      data: {
+        labels: (summary.classes || CLASS_LABELS).map((label, idx) => `کلاس ${idx + 1}: ${label}`),
+        datasets: [{
+          data: percentages,
+          backgroundColor: summary.classColors || CLASS_COLORS,
+          borderWidth: 2,
+          borderColor: '#1e293b'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '62%',
+        plugins: {
+          legend: {
+            position: 'bottom',
+            rtl: true,
+            labels: {
+              color: '#c5d0df',
+              font: { family: 'Vazirmatn', size: 10 },
+              usePointStyle: true,
+              boxWidth: 8
+            }
+          },
+          tooltip: {
+            rtl: true,
+            titleFont: { family: 'Vazirmatn' },
+            bodyFont: { family: 'Vazirmatn' },
+            callbacks: {
+              label: (context) => ` مساحت: ${context.raw !== null ? context.raw + '٪' : 'نامشخص'}`
+            }
+          }
+        }
+      }
+    });
+
+    // توضیحات وضعیت داده‌ها
     const historicalCount = (summary.historical || []).filter(
       (row) => safeNumber(row.mean) !== null
     ).length;
@@ -1274,6 +1265,12 @@
     $('area-note').textContent = knownAreaCount
       ? `مساحت ${knownAreaCount} طبقه از سناریوی انتخاب‌شده نمایش داده شده است.`
       : 'آمار مساحت واقعی طبقات هنوز ثبت نشده است؛ پس از محاسبه در Earth Engine این نمودار به‌روزرسانی می‌شود.';
+
+    if ($('donut-note')) {
+      $('donut-note').textContent = totalArea > 0
+        ? `درصد مساحت طبقات برای دوره انتخابی محاسبه شد.`
+        : 'درصد کلاس‌ها پس از ثبت مساحت در summary.json رسم می‌شود.';
+    }
   }
 
   function renderKpis() {
@@ -1290,34 +1287,13 @@
   }
 
   function setupControls() {
-    $('source-select').addEventListener('change', () => {
-      const historical = $('source-select').value === 'historical';
-
-      $('year-control-wrap').hidden = !historical;
-
-      $('map-title').textContent = sourceLabel(
-        $('source-select').value,
-        $('year-select').value
-      );
-
+    $('period-select').addEventListener('change', () => {
+      $('map-title').textContent = periodCurrentLabel();
       renderCharts();
       scheduleMainMapRender();
     });
 
-    $('load-map-btn').addEventListener(
-      'click',
-      renderMainMap
-    );
-
-    $('year-select').addEventListener('change', () => {
-      $('map-title').textContent = sourceLabel(
-        $('source-select').value,
-        $('year-select').value
-      );
-
-      renderCharts();
-      scheduleMainMapRender();
-    });
+    $('load-map-btn').addEventListener('click', renderMainMap);
 
     $('band-select').addEventListener('change', () => {
       updateLegend($('band-select').value);
@@ -1338,10 +1314,7 @@
       }
     });
 
-    $('compare-btn').addEventListener(
-      'click',
-      renderCompare
-    );
+    $('compare-btn').addEventListener('click', renderCompare);
 
     $('compare-band').addEventListener('change', () => {
       if (state.compareLayers.length) {
@@ -1358,17 +1331,11 @@
         link.classList.add('active');
 
         if (link.getAttribute('href') === '#compare-section') {
-          setTimeout(
-            () => state.compareMap?.invalidateSize(),
-            120
-          );
+          setTimeout(() => state.compareMap?.invalidateSize(), 120);
         }
 
         if (link.getAttribute('href') === '#map-section') {
-          setTimeout(
-            () => state.mainMap?.invalidateSize(),
-            120
-          );
+          setTimeout(() => state.mainMap?.invalidateSize(), 120);
         }
       });
     });
@@ -1389,9 +1356,7 @@
 
     const number = Number(value);
 
-    return Number.isFinite(number)
-      ? number
-      : null;
+    return Number.isFinite(number) ? number : null;
   }
 
   function mergeAnnualCsv(csvText) {
@@ -1404,18 +1369,14 @@
 
     const headers = lines[0]
       .split(',')
-      .map((item) =>
-        item.trim().replace(/^"|"$/g, '')
-      );
+      .map((item) => item.trim().replace(/^"|"$/g, ''));
 
     const rows = new Map();
 
     lines.slice(1).forEach((line) => {
       const cells = line
         .split(',')
-        .map((item) =>
-          item.trim().replace(/^"|"$/g, '')
-        );
+        .map((item) => item.trim().replace(/^"|"$/g, ''));
 
       const row = {};
 
@@ -1472,12 +1433,8 @@
     try {
       const [catalogResponse, summaryResponse] =
         await Promise.all([
-          fetch('data/map_catalog.json', {
-            cache: 'no-store'
-          }),
-          fetch('data/summary.json', {
-            cache: 'no-store'
-          })
+          fetch('data/map_catalog.json', { cache: 'no-store' }),
+          fetch('data/summary.json', { cache: 'no-store' })
         ]);
 
       if (!catalogResponse.ok) {
@@ -1487,9 +1444,7 @@
       }
 
       if (!summaryResponse.ok) {
-        throw new Error(
-          'فایل data/summary.json بارگذاری نشد.'
-        );
+        throw new Error('فایل data/summary.json بارگذاری نشد.');
       }
 
       state.catalog = await catalogResponse.json();
@@ -1503,7 +1458,6 @@
 
       await findAvailableHistoricalYears();
 
-      // Optional CSV. The dashboard works without this file.
       try {
         const csvResponse = await fetch(
           'data/annual_summary.csv',
@@ -1514,10 +1468,9 @@
           mergeAnnualCsv(await csvResponse.text());
         }
       } catch (_optionalCsvError) {
-        // Optional CSV; ignore if absent.
+        // Optional CSV
       }
 
-      populateYearSelect();
       populateCompareSelects();
 
       initMainMap();
@@ -1530,21 +1483,11 @@
       renderCharts();
       updateLegend('CLASS');
 
-      $('year-control-wrap').hidden = false;
-
-      if (!(state.catalog.historicalYears || []).length) {
-        setStatus(
-          'map-status',
-          'در فهرست، سال تاریخی دارای فایل GeoTIFF پیدا نشد؛ فایل‌ها و مسیر historicalTemplate را بررسی کن.',
-          'warning'
-        );
-      } else {
-        setStatus(
-          'map-status',
-          'داشبورد آماده است؛ در حال بارگذاری نقشه پیش‌فرض…',
-          'info'
-        );
-      }
+      setStatus(
+        'map-status',
+        'داشبورد آماده است؛ در حال بارگذاری نقشه…',
+        'info'
+      );
 
       $('compare-status').textContent =
         'برای ساخت مقایسه واقعی، هر دو فایل انتخاب‌شده باید در مسیرهای تعریف‌شده موجود باشند.';
@@ -1552,10 +1495,7 @@
       setTimeout(() => {
         state.mainMap.invalidateSize();
         state.compareMap.invalidateSize();
-
-        if ((state.catalog.historicalYears || []).length) {
-          renderMainMap();
-        }
+        renderMainMap();
       }, 150);
     } catch (error) {
       setStatus(
