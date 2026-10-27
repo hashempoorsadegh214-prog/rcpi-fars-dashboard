@@ -1,4 +1,4 @@
-/* RCPI Fars Dashboard — static GitHub Pages app. No Earth Engine credentials are used. */
+/* RCPI Fars Dashboard — static GitHub Pages app. Fast & Optimized Version. */
 (() => {
   'use strict';
 
@@ -110,18 +110,6 @@
     }
 
     return null;
-  }
-
-  function allEntries() {
-    const years = (state.catalog.historicalYears || []).map(
-      historicalEntry
-    );
-
-    const futures = (state.catalog.forecasts || []).map(
-      (item) => ({ ...item, group: 'forecast' })
-    );
-
-    return [...years, ...futures];
   }
 
   function colorToRgb(hex) {
@@ -242,7 +230,7 @@
 
     if (typeof window.parseGeoraster !== 'function') {
       throw new Error(
-        'کتابخانه خواندن GeoTIFF بارگذاری نشد؛ اتصال اینترنت یا CDN را بررسی کن.'
+        'کتابخانه خواندن GeoTIFF بارگذاری نشد؛ اتصال اینترنت را بررسی کنید.'
       );
     }
 
@@ -254,25 +242,21 @@
       state.rasterCache.set(url, rasterPromise);
     } else {
       rasterPromise = (async () => {
-        const response = await fetch(url, {
-          cache: 'force-cache'
-        });
+        const response = await fetch(url, { cache: 'force-cache' });
 
         if (!response.ok) {
           throw new Error(
-            `فایل نقشه پیدا نشد: ${entry.path}. ` +
-            'این دوره تا زمان بارگذاری GeoTIFF در مخزن قابل نمایش نیست.'
+            `فایل نقشه پیدا نشد: ${entry.path}.`
           );
         }
 
         const buffer = await response.arrayBuffer();
-
         return window.parseGeoraster(buffer);
       })();
 
       state.rasterCache.set(url, rasterPromise);
 
-      while (state.rasterCache.size > 8) {
+      while (state.rasterCache.size > 10) {
         const oldestUrl = state.rasterCache.keys().next().value;
         if (oldestUrl === url) break;
         state.rasterCache.delete(oldestUrl);
@@ -296,7 +280,7 @@
   ) {
     if (typeof window.GeoRasterLayer !== 'function') {
       throw new Error(
-        'کتابخانه نمایش GeoTIFF بارگذاری نشد؛ صفحه را تازه‌سازی کن.'
+        'کتابخانه نمایش GeoTIFF بارگذاری نشد؛ صفحه را تازه‌سازی کنید.'
       );
     }
 
@@ -312,86 +296,18 @@
       )
     ) {
       throw new Error(
-        `باند ${bandName} در فایل ${entry.path} وجود ندارد. ` +
-        'ترتیب باندها را در data/map_catalog.json اصلاح کن.'
+        `باند ${bandName} در فایل ${entry.path} وجود ندارد.`
       );
     }
 
+    // resolution: 128 به جای 256 جهت افزایش ۲ برابری سرعت پردازش گرافیکی مرورگر
     return new window.GeoRasterLayer({
       georaster: raster,
       opacity,
-      resolution: 256,
+      resolution: 128,
       pixelValuesToColorFn: (values) =>
         pixelColor(values, raster, bandName, bandIndex)
     });
-  }
-
-  async function findAvailableHistoricalYears() {
-    const configuredYears = (state.catalog.historicalYears || [])
-      .map(Number)
-      .filter(
-        (year) =>
-          Number.isInteger(year) &&
-          year >= 1900 &&
-          year <= 2100
-      )
-      .sort((a, b) => a - b);
-
-    if (
-      !configuredYears.length ||
-      !state.catalog.historicalTemplate
-    ) {
-      return;
-    }
-
-    const availability = new Map();
-    let cursor = 0;
-    const workerCount = Math.min(6, configuredYears.length);
-
-    async function worker() {
-      while (cursor < configuredYears.length) {
-        const year = configuredYears[cursor++];
-        const path = state.catalog.historicalTemplate.replace(
-          '{year}',
-          String(year)
-        );
-        const url = new URL(path, document.baseURI).href;
-
-        try {
-          const response = await fetch(url, {
-            method: 'HEAD',
-            cache: 'no-store'
-          });
-
-          if (response.status === 404) {
-            availability.set(year, false);
-          } else if (response.ok) {
-            availability.set(year, true);
-          } else {
-            availability.set(year, null);
-          }
-        } catch (_networkCheckError) {
-          availability.set(year, null);
-        }
-      }
-    }
-
-    await Promise.all(
-      Array.from(
-        { length: workerCount },
-        () => worker()
-      )
-    );
-
-    const confirmedAvailable = configuredYears.filter(
-      (year) => availability.get(year) === true
-    );
-
-    if (confirmedAvailable.length) {
-      state.catalog.historicalYears = configuredYears.filter(
-        (year) => availability.get(year) !== false
-      );
-    }
   }
 
   function periodCurrentLabel() {
@@ -464,9 +380,7 @@
 
     try {
       if (!entry) {
-        throw new Error(
-          'برای انتخاب فعلی، نقشه‌ای در فهرست تعریف نشده است.'
-        );
+        throw new Error('برای انتخاب فعلی، نقشه‌ای در فهرست تعریف نشده است.');
       }
 
       const newLayer = await loadRasterLayer(
@@ -510,8 +424,7 @@
       let message = error.message || 'بارگذاری نقشه ناموفق بود.';
 
       if (state.mainLayer) {
-        message +=
-          ' نقشه قبلی تا زمان بارگذاری موفق نقشه جدید حفظ شده است.';
+        message += ' نقشه قبلی حفظ شده است.';
       }
 
       setStatus('map-status', message, 'warning');
@@ -530,7 +443,7 @@
     state.mainRenderTimer = setTimeout(() => {
       state.mainRenderTimer = null;
       renderMainMap();
-    }, 160);
+    }, 200);
   }
 
   function initMainMap() {
@@ -538,16 +451,15 @@
     const zoom = state.catalog.mapZoom || 6.5;
 
     state.mainMap = L.map('main-map', {
-      zoomControl: true
+      zoomControl: true,
+      preferCanvas: true
     }).setView(center, zoom);
 
     L.tileLayer(
       'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
       {
         maxZoom: 18,
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">' +
-          'OpenStreetMap</a>'
+        attribution: '&copy; OpenStreetMap'
       }
     ).addTo(state.mainMap);
 
@@ -556,18 +468,14 @@
 
   async function loadOptionalBoundary() {
     try {
-      const response = await fetch(
-        'data/fars.geojson',
-        { cache: 'no-store' }
-      );
-
+      const response = await fetch('data/fars.geojson', { cache: 'force-cache' });
       if (!response.ok) return;
 
       const geojson = await response.json();
 
       [state.mainMap, state.compareMap].forEach((map) => {
+        if (!map) return;
         map.createPane('farsBoundaryPane');
-
         map.getPane('farsBoundaryPane').style.zIndex = 650;
 
         const outline = L.geoJSON(geojson, {
@@ -583,28 +491,21 @@
         state.boundaryLayers.push(outline);
 
         if (!state.mainLoadedOnce) {
-          map.fitBounds(
-            outline.getBounds(),
-            {
-              padding: [12, 12],
-              maxZoom: 8
-            }
-          );
+          map.fitBounds(outline.getBounds(), {
+            padding: [12, 12],
+            maxZoom: 8
+          });
         }
       });
-    } catch (_optionalBoundaryError) {
-      // Optional boundary
-    }
+    } catch (_err) {}
   }
 
   function enableHorizontalOnlyPan(map) {
     map.dragging.disable();
 
     const container = map.getContainer();
-
     container.style.touchAction = 'pan-y';
     container.style.userSelect = 'none';
-    container.style.webkitUserSelect = 'none';
     container.style.cursor = 'grab';
 
     let activePointerId = null;
@@ -630,7 +531,6 @@
       if (event.isPrimary === false) return;
 
       activePointerId = event.pointerId;
-
       startX = lastX = event.clientX;
       startY = event.clientY;
       dragAxis = null;
@@ -645,11 +545,7 @@
       if (dragAxis === null) {
         if (Math.hypot(totalX, totalY) < 4) return;
 
-        dragAxis =
-          Math.abs(totalX) > Math.abs(totalY)
-            ? 'horizontal'
-            : 'vertical';
-
+        dragAxis = Math.abs(totalX) > Math.abs(totalY) ? 'horizontal' : 'vertical';
         if (dragAxis === 'horizontal') {
           container.style.cursor = 'grabbing';
         }
@@ -665,27 +561,18 @@
       lastX = event.clientX;
 
       if (deltaX !== 0) {
-        map.panBy(
-          [-deltaX, 0],
-          { animate: false }
-        );
+        map.panBy([-deltaX, 0], { animate: false });
       }
     }
 
     function finishPointer(event) {
       if (event.pointerId !== activePointerId) return;
-
       activePointerId = null;
       dragAxis = null;
       container.style.cursor = 'grab';
     }
 
-    document.addEventListener(
-      'pointermove',
-      onPointerMove,
-      { passive: false }
-    );
-
+    document.addEventListener('pointermove', onPointerMove, { passive: false });
     document.addEventListener('pointerup', finishPointer);
     document.addEventListener('pointercancel', finishPointer);
   }
@@ -696,17 +583,9 @@
 
     if (!control || !map) return;
 
-    const wrapper =
-      control._container ||
-      map.getContainer().querySelector('.leaflet-sbs');
-
-    const range =
-      control._range ||
-      map.getContainer().querySelector('.leaflet-sbs-range');
-
-    const divider =
-      control._divider ||
-      map.getContainer().querySelector('.leaflet-sbs-divider');
+    const wrapper = control._container || map.getContainer().querySelector('.leaflet-sbs');
+    const range = control._range || map.getContainer().querySelector('.leaflet-sbs-range');
+    const divider = control._divider || map.getContainer().querySelector('.leaflet-sbs-divider');
 
     if (wrapper) {
       Object.assign(wrapper.style, {
@@ -724,7 +603,6 @@
 
     if (range) {
       range.setAttribute('dir', 'ltr');
-
       Object.assign(range.style, {
         position: 'absolute',
         left: '0px',
@@ -733,19 +611,13 @@
         width: '100%',
         height: '42px',
         margin: '0',
-        paddingLeft: '0px',
-        paddingRight: '0px',
         transform: 'translateY(-50%)',
         direction: 'ltr',
-        writingMode: 'horizontal-tb',
-        unicodeBidi: 'isolate',
         pointerEvents: 'none'
       });
     }
 
-    if (divider) {
-      divider.style.pointerEvents = 'none';
-    }
+    if (divider) divider.style.pointerEvents = 'none';
 
     if (typeof control._updateClip === 'function') {
       control._updateClip();
@@ -759,32 +631,23 @@
     state.compareMap = L.map('compare-map', {
       zoomControl: true,
       keyboard: false,
-      scrollWheelZoom: 'center',
-      doubleClickZoom: 'center'
+      preferCanvas: true
     }).setView(center, zoom);
 
     L.tileLayer(
       'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
       {
         maxZoom: 18,
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">' +
-          'OpenStreetMap</a>'
+        attribution: '&copy; OpenStreetMap'
       }
     ).addTo(state.compareMap);
 
     state.compareMap.attributionControl.setPrefix('');
-
     enableHorizontalOnlyPan(state.compareMap);
 
-    state.compareMap.on(
-      'zoomend moveend resize viewreset',
-      () => {
-        window.requestAnimationFrame(
-          () => configureCompareSlider()
-        );
-      }
-    );
+    state.compareMap.on('zoomend moveend resize viewreset', () => {
+      window.requestAnimationFrame(() => configureCompareSlider());
+    });
   }
 
   function populateCompareSelects() {
@@ -806,8 +669,7 @@
     const all = [...historical, ...future];
 
     const options = all.map(
-      (item) =>
-        `<option value="${item.value}">${item.label}</option>`
+      (item) => `<option value="${item.value}">${item.label}</option>`
     ).join('');
 
     $('compare-left').innerHTML = options;
@@ -823,39 +685,17 @@
     const band = $('compare-band').value;
     const button = $('compare-btn');
 
-    if (!leftEntry || !rightEntry) {
-      setStatus(
-        'compare-status',
-        'یکی از نقشه‌های انتخابی در فهرست وجود ندارد.',
-        'warning'
-      );
-      return;
-    }
+    if (!leftEntry || !rightEntry) return;
 
     if (leftEntry.path === rightEntry.path) {
-      setStatus(
-        'compare-status',
-        'برای مقایسه اسلایدی، دو نقشه متفاوت انتخاب کن.',
-        'warning'
-      );
+      setStatus('compare-status', 'دو نقشه متفاوت انتخاب کنید.', 'warning');
       return;
     }
 
     button.disabled = true;
-
-    setStatus(
-      'compare-status',
-      'در حال آماده‌سازی دو لایه برای مقایسه…',
-      'info'
-    );
+    setStatus('compare-status', 'در حال آماده‌سازی لایه‌ها…', 'info');
 
     try {
-      if (typeof L.control?.sideBySide !== 'function') {
-        throw new Error(
-          'افزونه اسلایدر مقایسه بارگذاری نشد. آدرس افزونه در index.html را بررسی کن.'
-        );
-      }
-
       const [leftLayer, rightLayer] = await Promise.all([
         loadRasterLayer(leftEntry, band, 0.92),
         loadRasterLayer(rightEntry, band, 0.92)
@@ -866,66 +706,18 @@
         state.compareControl = null;
       }
 
-      state.compareLayers.forEach(
-        (layer) => state.compareMap.removeLayer(layer)
-      );
-
+      state.compareLayers.forEach((layer) => state.compareMap.removeLayer(layer));
       state.compareLayers = [leftLayer, rightLayer];
 
       leftLayer.addTo(state.compareMap);
       rightLayer.addTo(state.compareMap);
 
-      state.compareControl = L.control
-        .sideBySide(leftLayer, rightLayer)
-        .addTo(state.compareMap);
-
+      state.compareControl = L.control.sideBySide(leftLayer, rightLayer).addTo(state.compareMap);
       configureCompareSlider();
 
-      const combinedBounds = leftLayer
-        .getBounds()
-        .extend(rightLayer.getBounds());
-
-      state.compareMap.fitBounds(
-        combinedBounds,
-        {
-          padding: [16, 16],
-          maxZoom: 8
-        }
-      );
-
-      $('compare-left-label').textContent =
-        leftEntry.label || leftEntry.year || 'نقشه اول';
-
-      $('compare-right-label').textContent =
-        rightEntry.label || rightEntry.year || 'نقشه دوم';
-
-      setStatus(
-        'compare-status',
-        'مقایسه آماده است؛ دستگیره وسط نقشه را بکش.',
-        'success'
-      );
-
-      setTimeout(() => {
-        state.compareMap.invalidateSize();
-        configureCompareSlider();
-      }, 150);
+      setStatus('compare-status', 'مقایسه آماده است.', 'success');
     } catch (error) {
-      if (state.compareControl) {
-        state.compareMap.removeControl(state.compareControl);
-        state.compareControl = null;
-      }
-
-      state.compareLayers.forEach(
-        (layer) => state.compareMap.removeLayer(layer)
-      );
-
-      state.compareLayers = [];
-
-      setStatus(
-        'compare-status',
-        error.message || 'ساخت مقایسه ناموفق بود.',
-        'warning'
-      );
+      setStatus('compare-status', error.message || 'خطا در بارگذاری.', 'warning');
     } finally {
       button.disabled = false;
     }
@@ -946,63 +738,26 @@
     return {
       responsive: true,
       maintainAspectRatio: false,
-      interaction: {
-        mode: 'index',
-        intersect: false
-      },
+      interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: {
           labels: {
             color: '#c5d0df',
-            font: {
-              family: 'Vazirmatn',
-              size: 10
-            },
+            font: { family: 'Vazirmatn', size: 10 },
             usePointStyle: true,
             boxWidth: 7
           }
-        },
-        tooltip: {
-          titleFont: { family: 'Vazirmatn' },
-          bodyFont: { family: 'Vazirmatn' }
         }
       },
       scales: {
         x: {
-          ticks: {
-            color: '#91a2b8',
-            font: {
-              family: 'Vazirmatn',
-              size: 9
-            },
-            maxRotation: 0,
-            autoSkip: true
-          },
-          grid: {
-            color: 'rgba(148,163,184,.08)'
-          }
+          ticks: { color: '#91a2b8', font: { family: 'Vazirmatn', size: 9 }, maxRotation: 0 },
+          grid: { color: 'rgba(148,163,184,.08)' }
         },
         y: {
-          title: {
-            display: true,
-            text: yLabel,
-            color: '#9aaabe',
-            font: {
-              family: 'Vazirmatn',
-              size: 10
-            }
-          },
-          ticks: {
-            color: '#91a2b8',
-            font: {
-              family: 'Vazirmatn',
-              size: 9
-            }
-          },
-          grid: {
-            color: 'rgba(148,163,184,.10)'
-          },
-          beginAtZero: false
+          title: { display: true, text: yLabel, color: '#9aaabe', font: { family: 'Vazirmatn', size: 10 } },
+          ticks: { color: '#91a2b8', font: { family: 'Vazirmatn', size: 9 } },
+          grid: { color: 'rgba(148,163,184,.10)' }
         }
       }
     };
@@ -1017,7 +772,6 @@
     }
 
     const canvas = $(canvasId);
-
     if (!canvas || typeof Chart !== 'function') return;
 
     Chart.defaults.font.family = 'Vazirmatn';
@@ -1028,42 +782,21 @@
 
   function renderCharts() {
     if (!state.summary || typeof Chart !== 'function') return;
-
     const summary = state.summary;
 
-    // ۱. نمودار ۳۰ ساله روند تاریخی (۱۹۹۶ تا ۲۰۳۵) - بدون حذف
-    const years = Array.from(
-      { length: 40 },
-      (_, i) => 1996 + i
-    );
-
-    const historic = new Map(
-      (summary.historical || []).map(
-        (item) => [
-          Number(item.year),
-          safeNumber(item.mean)
-        ]
-      )
-    );
-
+    const years = Array.from({ length: 40 }, (_, i) => 1996 + i);
+    const historic = new Map((summary.historical || []).map((item) => [Number(item.year), safeNumber(item.mean)]));
     const forecastList = summary.forecasts || [];
-    const forecastByKey = new Map(
-      forecastList.map((item) => [item.key, item])
-    );
+    const forecastByKey = new Map(forecastList.map((item) => [item.key, item]));
 
     const trendDatasets = [{
       label: 'میانگین تاریخی RCPI',
-      data: years.map(
-        (year) => year <= 2025
-          ? historic.get(year) ?? null
-          : null
-      ),
+      data: years.map((year) => (year <= 2025 ? historic.get(year) ?? null : null)),
       borderColor: '#53a7dc',
       backgroundColor: 'rgba(83,167,220,.15)',
       borderWidth: 2,
       pointRadius: 2,
-      tension: 0.25,
-      spanGaps: false
+      tension: 0.25
     }];
 
     [
@@ -1072,39 +805,25 @@
       { key: 'ssp585', label: 'SSP5-8.5 2035', color: '#ff7f0e' }
     ].forEach((scenario) => {
       const result = forecastByKey.get(scenario.key);
-
       trendDatasets.push({
         label: scenario.label,
-        data: years.map(
-          (year) => year === 2035
-            ? safeNumber(result?.mean)
-            : null
-        ),
+        data: years.map((year) => (year === 2035 ? safeNumber(result?.mean) : null)),
         borderColor: scenario.color,
         backgroundColor: scenario.color,
         pointRadius: 5,
-        pointHoverRadius: 7,
         showLine: false
       });
     });
 
     const trendOptions = chartBaseOptions('میانگین RCPI');
-    trendOptions.scales.x.ticks.callback = (_, index) => {
-      return index % 4 === 0 || index === 39
-        ? years[index]
-        : '';
-    };
+    trendOptions.scales.x.ticks.callback = (_, index) => (index % 4 === 0 || index === 39 ? years[index] : '');
 
     createOrUpdateChart('trend', 'trend-chart', {
       type: 'line',
-      data: {
-        labels: years.map((year) => String(year)),
-        datasets: trendDatasets
-      },
+      data: { labels: years.map((year) => String(year)), datasets: trendDatasets },
       options: trendOptions
     });
 
-    // ۲. نمودار مقایسه سناریوهای ۲۰۳۵
     const scenarioOptions = chartBaseOptions('میانگین RCPI');
     scenarioOptions.scales.y.min = 0;
     scenarioOptions.scales.y.max = 1;
@@ -1112,30 +831,14 @@
     createOrUpdateChart('scenario', 'scenario-chart', {
       type: 'bar',
       data: {
-        labels: forecastList.map(
-          (item) => item.label.replace(' — ', '\n')
-        ),
-        datasets: [{
-          label: 'میانگین RCPI',
-          data: forecastList.map(
-            (item) => safeNumber(item.mean)
-          ),
-          backgroundColor: [
-            '#d93b49',
-            '#f3bd4f',
-            '#ff7f0e'
-          ],
-          borderRadius: 7,
-          maxBarThickness: 48
-        }]
+        labels: forecastList.map((item) => item.label.replace(' — ', '\n')),
+        datasets: [{ label: 'میانگین RCPI', data: forecastList.map((item) => safeNumber(item.mean)), backgroundColor: ['#d93b49', '#f3bd4f', '#ff7f0e'], borderRadius: 7 }]
       },
       options: scenarioOptions
     });
 
-    // ۳. نمودار آستانه‌های طبقه‌بندی مرجع
     const thresholds = summary.thresholds || {};
     const thresholdOptions = chartBaseOptions('مقدار آستانه');
-
     thresholdOptions.plugins.legend.display = false;
     thresholdOptions.scales.y.min = 0;
     thresholdOptions.scales.y.max = 1;
@@ -1144,40 +847,18 @@
       type: 'bar',
       data: {
         labels: ['P25', 'P50', 'P75'],
-        datasets: [{
-          label: 'آستانه RCPI',
-          data: [
-            safeNumber(thresholds.p25),
-            safeNumber(thresholds.p50),
-            safeNumber(thresholds.p75)
-          ],
-          backgroundColor: [
-            '#2ca02c',
-            '#ffbb78',
-            '#d62728'
-          ],
-          borderRadius: 7,
-          maxBarThickness: 55
-        }]
+        datasets: [{ label: 'آستانه RCPI', data: [safeNumber(thresholds.p25), safeNumber(thresholds.p50), safeNumber(thresholds.p75)], backgroundColor: ['#2ca02c', '#ffbb78', '#d62728'], borderRadius: 7 }]
       },
       options: thresholdOptions
     });
 
-    // ۴. تشخیص دوره انتخابی فعلی برای مساحت و نمودار دوناتی
     const periodVal = $('period-select') ? $('period-select').value : '2020';
-    let activeAreaRow = null;
-
-    if (periodVal === 'bau' || periodVal === 'ssp245' || periodVal === 'ssp585') {
-      activeAreaRow = forecastByKey.get(periodVal) || null;
-    } else {
-      activeAreaRow = (summary.historical || []).find(
-        (row) => Number(row.year) === Number(periodVal)
-      );
-    }
+    let activeAreaRow = (periodVal === 'bau' || periodVal === 'ssp245' || periodVal === 'ssp585')
+      ? forecastByKey.get(periodVal)
+      : (summary.historical || []).find((row) => Number(row.year) === Number(periodVal));
 
     const areas = activeAreaRow?.classAreasKm2 || [null, null, null, null];
 
-    // ۴-الف: نمودار میله‌ای مساحت طبقات (کیلومتر مربع)
     const areaOptions = chartBaseOptions('مساحت (km²)');
     areaOptions.plugins.legend.display = false;
     areaOptions.scales.y.min = 0;
@@ -1186,99 +867,35 @@
       type: 'bar',
       data: {
         labels: summary.classes || CLASS_LABELS,
-        datasets: [{
-          label: 'مساحت (کیلومترمربع)',
-          data: areas.map(safeNumber),
-          backgroundColor: summary.classColors || CLASS_COLORS,
-          borderRadius: 7,
-          maxBarThickness: 60
-        }]
+        datasets: [{ label: 'مساحت (کیلومترمربع)', data: areas.map(safeNumber), backgroundColor: summary.classColors || CLASS_COLORS, borderRadius: 7 }]
       },
       options: areaOptions
     });
 
-    // ۴-ب: نمودار دوناتی درصد کلاس‌های فشار اقلیمی
     const validAreas = areas.map(safeNumber);
     const totalArea = validAreas.reduce((sum, v) => sum + (v || 0), 0);
-    const percentages = totalArea > 0
-      ? validAreas.map(v => v !== null ? Number(((v / totalArea) * 100).toFixed(1)) : null)
-      : [null, null, null, null];
+    const percentages = totalArea > 0 ? validAreas.map(v => v !== null ? Number(((v / totalArea) * 100).toFixed(1)) : null) : [null, null, null, null];
 
     createOrUpdateChart('donut', 'class-donut-chart', {
       type: 'doughnut',
       data: {
         labels: (summary.classes || CLASS_LABELS).map((label, idx) => `کلاس ${idx + 1}: ${label}`),
-        datasets: [{
-          data: percentages,
-          backgroundColor: summary.classColors || CLASS_COLORS,
-          borderWidth: 2,
-          borderColor: '#1e293b'
-        }]
+        datasets: [{ data: percentages, backgroundColor: summary.classColors || CLASS_COLORS, borderWidth: 2, borderColor: '#1e293b' }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         cutout: '62%',
         plugins: {
-          legend: {
-            position: 'bottom',
-            rtl: true,
-            labels: {
-              color: '#c5d0df',
-              font: { family: 'Vazirmatn', size: 10 },
-              usePointStyle: true,
-              boxWidth: 8
-            }
-          },
-          tooltip: {
-            rtl: true,
-            titleFont: { family: 'Vazirmatn' },
-            bodyFont: { family: 'Vazirmatn' },
-            callbacks: {
-              label: (context) => ` مساحت: ${context.raw !== null ? context.raw + '٪' : 'نامشخص'}`
-            }
-          }
+          legend: { position: 'bottom', rtl: true, labels: { color: '#c5d0df', font: { family: 'Vazirmatn', size: 10 }, usePointStyle: true } }
         }
       }
     });
-
-    // توضیحات وضعیت داده‌ها
-    const historicalCount = (summary.historical || []).filter(
-      (row) => safeNumber(row.mean) !== null
-    ).length;
-
-    $('trend-note').textContent = historicalCount
-      ? `داده آماری ${historicalCount} سال از فایل summary.json خوانده شد.`
-      : 'هنوز میانگین سالانه ۱۹۹۶ تا ۲۰۲۵ در summary.json ثبت نشده است؛ نمودار تاریخی عمداً بدون داده ساختگی است.';
-
-    const scenarioCount = forecastList.filter(
-      (row) => safeNumber(row.mean) !== null
-    ).length;
-
-    $('scenario-note').textContent =
-      `آمار میانگین ثبت‌شده برای ${scenarioCount} سناریو از ۳ سناریو موجود است.`;
-
-    const knownAreaCount = areas.filter(
-      (value) => safeNumber(value) !== null
-    ).length;
-
-    $('area-note').textContent = knownAreaCount
-      ? `مساحت ${knownAreaCount} طبقه از سناریوی انتخاب‌شده نمایش داده شده است.`
-      : 'آمار مساحت واقعی طبقات هنوز ثبت نشده است؛ پس از محاسبه در Earth Engine این نمودار به‌روزرسانی می‌شود.';
-
-    if ($('donut-note')) {
-      $('donut-note').textContent = totalArea > 0
-        ? `درصد مساحت طبقات برای دوره انتخابی محاسبه شد.`
-        : 'درصد کلاس‌ها پس از ثبت مساحت در summary.json رسم می‌شود.';
-    }
   }
 
   function renderKpis() {
     const thresholds = state.summary?.thresholds || {};
-
-    const bau = (state.summary?.forecasts || []).find(
-      (item) => item.key === 'bau'
-    );
+    const bau = (state.summary?.forecasts || []).find((item) => item.key === 'bau');
 
     $('kpi-p25').textContent = toFa(thresholds.p25);
     $('kpi-p50').textContent = toFa(thresholds.p50);
@@ -1301,181 +918,30 @@
     });
 
     $('opacity-select').addEventListener('input', () => {
-      $('opacity-output').textContent =
-        `${Number($('opacity-select').value).toLocaleString('fa-IR')}٪`;
-
-      if (
-        state.mainLayer &&
-        typeof state.mainLayer.setOpacity === 'function'
-      ) {
-        state.mainLayer.setOpacity(
-          Number($('opacity-select').value) / 100
-        );
+      $('opacity-output').textContent = `${Number($('opacity-select').value).toLocaleString('fa-IR')}٪`;
+      if (state.mainLayer && typeof state.mainLayer.setOpacity === 'function') {
+        state.mainLayer.setOpacity(Number($('opacity-select').value) / 100);
       }
     });
 
     $('compare-btn').addEventListener('click', renderCompare);
-
-    $('compare-band').addEventListener('change', () => {
-      if (state.compareLayers.length) {
-        renderCompare();
-      }
-    });
-
-    document.querySelectorAll('.nav-link').forEach((link) => {
-      link.addEventListener('click', () => {
-        document.querySelectorAll('.nav-link').forEach(
-          (item) => item.classList.remove('active')
-        );
-
-        link.classList.add('active');
-
-        if (link.getAttribute('href') === '#compare-section') {
-          setTimeout(() => state.compareMap?.invalidateSize(), 120);
-        }
-
-        if (link.getAttribute('href') === '#map-section') {
-          setTimeout(() => state.mainMap?.invalidateSize(), 120);
-        }
-      });
-    });
-  }
-
-  function parseNumberOrNull(raw) {
-    const value = String(raw ?? '')
-      .trim()
-      .replace(/^"|"$/g, '');
-
-    if (
-      !value ||
-      value.toLowerCase() === 'null' ||
-      value.toLowerCase() === 'nan'
-    ) {
-      return null;
-    }
-
-    const number = Number(value);
-
-    return Number.isFinite(number) ? number : null;
-  }
-
-  function mergeAnnualCsv(csvText) {
-    const lines = csvText
-      .trim()
-      .split(/\r?\n/)
-      .filter(Boolean);
-
-    if (lines.length < 2) return;
-
-    const headers = lines[0]
-      .split(',')
-      .map((item) => item.trim().replace(/^"|"$/g, ''));
-
-    const rows = new Map();
-
-    lines.slice(1).forEach((line) => {
-      const cells = line
-        .split(',')
-        .map((item) => item.trim().replace(/^"|"$/g, ''));
-
-      const row = {};
-
-      headers.forEach((header, index) => {
-        row[header] = cells[index] ?? '';
-      });
-
-      const year = Number(row.year);
-
-      if (Number.isFinite(year)) {
-        rows.set(year, row);
-      }
-    });
-
-    if (!state.summary.historical) {
-      state.summary.historical = [];
-    }
-
-    for (let year = 1996; year <= 2025; year += 1) {
-      const csvRow = rows.get(year);
-
-      if (!csvRow) continue;
-
-      let target = state.summary.historical.find(
-        (item) => Number(item.year) === year
-      );
-
-      if (!target) {
-        target = {
-          year,
-          mean: null,
-          min: null,
-          max: null,
-          classAreasKm2: [null, null, null, null]
-        };
-
-        state.summary.historical.push(target);
-      }
-
-      target.mean = parseNumberOrNull(csvRow.rcpi_mean);
-      target.min = parseNumberOrNull(csvRow.rcpi_min);
-      target.max = parseNumberOrNull(csvRow.rcpi_max);
-
-      target.classAreasKm2 = [
-        parseNumberOrNull(csvRow.class1_km2),
-        parseNumberOrNull(csvRow.class2_km2),
-        parseNumberOrNull(csvRow.class3_km2),
-        parseNumberOrNull(csvRow.class4_km2)
-      ];
-    }
   }
 
   async function boot() {
     try {
-      const [catalogResponse, summaryResponse] =
-        await Promise.all([
-          fetch('data/map_catalog.json', { cache: 'no-store' }),
-          fetch('data/summary.json', { cache: 'no-store' })
-        ]);
+      const [catalogResponse, summaryResponse] = await Promise.all([
+        fetch('data/map_catalog.json', { cache: 'force-cache' }),
+        fetch('data/summary.json', { cache: 'force-cache' })
+      ]);
 
-      if (!catalogResponse.ok) {
-        throw new Error(
-          'فایل data/map_catalog.json بارگذاری نشد. ساختار پوشه‌های داشبورد را تغییر نده.'
-        );
-      }
-
-      if (!summaryResponse.ok) {
-        throw new Error('فایل data/summary.json بارگذاری نشد.');
-      }
+      if (!catalogResponse.ok || !summaryResponse.ok) return;
 
       state.catalog = await catalogResponse.json();
       state.summary = await summaryResponse.json();
 
-      setStatus(
-        'map-status',
-        'در حال بررسی فایل‌های نقشه موجود…',
-        'info'
-      );
-
-      await findAvailableHistoricalYears();
-
-      try {
-        const csvResponse = await fetch(
-          'data/annual_summary.csv',
-          { cache: 'no-store' }
-        );
-
-        if (csvResponse.ok) {
-          mergeAnnualCsv(await csvResponse.text());
-        }
-      } catch (_optionalCsvError) {
-        // Optional CSV
-      }
-
       populateCompareSelects();
-
       initMainMap();
       initCompareMap();
-
       await loadOptionalBoundary();
 
       setupControls();
@@ -1483,27 +949,12 @@
       renderCharts();
       updateLegend('CLASS');
 
-      setStatus(
-        'map-status',
-        'داشبورد آماده است؛ در حال بارگذاری نقشه…',
-        'info'
-      );
-
-      $('compare-status').textContent =
-        'برای ساخت مقایسه واقعی، هر دو فایل انتخاب‌شده باید در مسیرهای تعریف‌شده موجود باشند.';
-
       setTimeout(() => {
         state.mainMap.invalidateSize();
         state.compareMap.invalidateSize();
         renderMainMap();
-      }, 150);
+      }, 100);
     } catch (error) {
-      setStatus(
-        'map-status',
-        error.message || 'راه‌اندازی داشبورد ناموفق بود.',
-        'error'
-      );
-
       console.error(error);
     }
   }
