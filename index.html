@@ -71,22 +71,28 @@
 
     <section id="map-section" class="panel-section">
       <div class="section-heading">
-        <div><div class="section-kicker">INTERACTIVE MAP</div><h2>نقشه تعاملی RCPI</h2><p>سال، سناریو و نوع شاخص را انتخاب کن.</p></div>
+        <div><div class="section-kicker">INTERACTIVE MAP</div><h2>نقشه تعاملی RCPI</h2><p>دوره یا سناریوی مورد نظر را انتخاب کن.</p></div>
         <span class="section-chip"><span class="tiny-dot"></span> لایه رستری</span>
       </div>
       <div class="map-layout">
         <aside class="control-panel">
-          <label for="source-select">دوره / سناریو</label>
-          <select id="source-select">
-            <option value="historical">سری تاریخی</option>
-            <option value="bau">ادامه روند موجود — BAU</option>
-            <option value="ssp245">سناریوی میانه — SSP2-4.5</option>
-            <option value="ssp585">سناریوی بدبینانه — SSP5-8.5</option>
+          <label for="period-select">دوره / سناریو</label>
+          <select id="period-select">
+            <optgroup label="پایش تاریخی (پنج‌ساله)">
+              <option value="1996">۱۹۹۶</option>
+              <option value="2000">۲۰۰۰</option>
+              <option value="2005">۲۰۰۵</option>
+              <option value="2010">۲۰۱۰</option>
+              <option value="2015">۲۰۱۵</option>
+              <option value="2020" selected>۲۰۲۰ (سال مرجع)</option>
+              <option value="2025">۲۰۲۵</option>
+            </optgroup>
+            <optgroup label="برآورد و سناریوهای ۲۰۳۵">
+              <option value="bau">۲۰۳۵ — ادامه روند موجود (BAU)</option>
+              <option value="ssp245">۲۰۳۵ — سناریوی میانه (SSP2-4.5)</option>
+              <option value="ssp585">۲۰۳۵ — سناریوی بدبینانه (SSP5-8.5)</option>
+            </optgroup>
           </select>
-          <div id="year-control-wrap">
-            <label for="year-select">سال تاریخی</label>
-            <select id="year-select"></select>
-          </div>
           <label for="band-select">متغیر نقشه</label>
           <select id="band-select">
             <option value="CLASS">طبقات RCPI (چهار کلاس)</option>
@@ -119,10 +125,31 @@
         <div><div class="section-kicker">STATISTICS & CHARTS</div><h2>نمودارهای آماری</h2><p>مقادیر از فایل خلاصه آماری خوانده می‌شوند؛ داده‌های گزارش‌نشده خالی می‌مانند.</p></div>
       </div>
       <div class="chart-grid">
-        <article class="chart-card chart-wide"><div class="chart-head"><h3>روند میانگین RCPI و نقطه برآورد ۲۰۳۵</h3><span>۱۹۹۶–۲۰۳۵</span></div><div class="chart-wrap"><canvas id="trend-chart"></canvas></div><p class="chart-foot" id="trend-note">برای نمایش روند تاریخی، میانگین هر سال را در data/summary.json ثبت کن.</p></article>
-        <article class="chart-card"><div class="chart-head"><h3>مقایسه میانگین سناریوها</h3><span>سال ۲۰۳۵</span></div><div class="chart-wrap"><canvas id="scenario-chart"></canvas></div><p class="chart-foot" id="scenario-note">فقط مقدارهایی نمایش داده می‌شوند که از اجرای واقعی GEE ثبت شده باشند.</p></article>
-        <article class="chart-card"><div class="chart-head"><h3>آستانه‌های طبقه‌بندی مرجع</h3><span>سال ۲۰۲۰</span></div><div class="chart-wrap"><canvas id="threshold-chart"></canvas></div><p class="chart-foot">آستانه‌ها ثابت هستند تا مقایسه مکانی طبقات بین سال‌ها ممکن بماند.</p></article>
-        <article class="chart-card chart-wide"><div class="chart-head"><h3>مساحت چهار طبقه RCPI</h3><span>کیلومترمربع</span></div><div class="chart-wrap chart-wrap-short"><canvas id="area-chart"></canvas></div><p class="chart-foot" id="area-note">پس از ثبت مساحت واقعی طبقات در data/summary.json، نمودار این بخش تکمیل می‌شود.</p></article>
+        <article class="chart-card chart-wide">
+          <div class="chart-head"><h3>روند میانگین RCPI و نقطه برآورد ۲۰۳۵</h3><span>۱۹۹۶–۲۰۳۵</span></div>
+          <div class="chart-wrap"><canvas id="trend-chart"></canvas></div>
+          <p class="chart-foot" id="trend-note">برای نمایش روند تاریخی، میانگین هر سال را در data/summary.json ثبت کن.</p>
+        </article>
+        <article class="chart-card">
+          <div class="chart-head"><h3>مقایسه میانگین سناریوها</h3><span>سال ۲۰۳۵</span></div>
+          <div class="chart-wrap"><canvas id="scenario-chart"></canvas></div>
+          <p class="chart-foot" id="scenario-note">فقط مقدارهایی نمایش داده می‌شوند که از اجرای واقعی GEE ثبت شده باشند.</p>
+        </article>
+        <article class="chart-card">
+          <div class="chart-head"><h3>آستانه‌های طبقه‌بندی مرجع</h3><span>سال ۲۰۲۰</span></div>
+          <div class="chart-wrap"><canvas id="threshold-chart"></canvas></div>
+          <p class="chart-foot">آستانه‌ها ثابت هستند تا مقایسه مکانی طبقات بین سال‌ها ممکن بماند.</p>
+        </article>
+        <article class="chart-card chart-wide">
+          <div class="chart-head"><h3>مساحت چهار طبقه RCPI</h3><span>کیلومترمربع</span></div>
+          <div class="chart-wrap chart-wrap-short"><canvas id="area-chart"></canvas></div>
+          <p class="chart-foot" id="area-note">پس از ثبت مساحت واقعی طبقات در data/summary.json، نمودار این بخش تکمیل می‌شود.</p>
+        </article>
+        <article class="chart-card chart-wide">
+          <div class="chart-head"><h3>درصد کلاس‌های فشار اقلیمی–محیطی</h3><span>نمودار دوناتی</span></div>
+          <div class="chart-wrap chart-wrap-short"><canvas id="class-donut-chart"></canvas></div>
+          <p class="chart-foot" id="donut-note">درصد مساحت هر طبقه از data/summary.json خوانده می‌شود.</p>
+        </article>
       </div>
     </section>
 
