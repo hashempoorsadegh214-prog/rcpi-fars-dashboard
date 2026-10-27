@@ -1,4 +1,4 @@
-/* RCPI Fars Dashboard — static GitHub Pages app. Fast & Optimized Version. */
+/* RCPI Fars Dashboard — static GitHub Pages app. Fixed Layer & Zoom Behavior. */
 (() => {
   'use strict';
 
@@ -300,7 +300,6 @@
       );
     }
 
-    // resolution: 128 به جای 256 جهت افزایش ۲ برابری سرعت پردازش گرافیکی مرورگر
     return new window.GeoRasterLayer({
       georaster: raster,
       opacity,
@@ -401,6 +400,7 @@
 
       state.mainLayer = newLayer;
 
+      // Fit bounds فقط در اولین بارگذاری اجرا شود تا با زوم کردن نقشه مجدد پرش نکند
       if (!state.mainLoadedOnce) {
         state.mainMap.fitBounds(
           newLayer.getBounds(),
@@ -433,17 +433,6 @@
         button.disabled = false;
       }
     }
-  }
-
-  function scheduleMainMapRender() {
-    if (state.mainRenderTimer) {
-      clearTimeout(state.mainRenderTimer);
-    }
-
-    state.mainRenderTimer = setTimeout(() => {
-      state.mainRenderTimer = null;
-      renderMainMap();
-    }, 200);
   }
 
   function initMainMap() {
@@ -489,139 +478,8 @@
         }).addTo(map);
 
         state.boundaryLayers.push(outline);
-
-        if (!state.mainLoadedOnce) {
-          map.fitBounds(outline.getBounds(), {
-            padding: [12, 12],
-            maxZoom: 8
-          });
-        }
       });
     } catch (_err) {}
-  }
-
-  function enableHorizontalOnlyPan(map) {
-    map.dragging.disable();
-
-    const container = map.getContainer();
-    container.style.touchAction = 'pan-y';
-    container.style.userSelect = 'none';
-    container.style.cursor = 'grab';
-
-    let activePointerId = null;
-    let startX = 0;
-    let startY = 0;
-    let lastX = 0;
-    let dragAxis = null;
-
-    function isControlTarget(target) {
-      return target instanceof Element &&
-        Boolean(
-          target.closest(
-            '.leaflet-control, .leaflet-control-container, ' +
-            '.leaflet-sbs-range, input, button, select, textarea, a, ' +
-            '[role="button"]'
-          )
-        );
-    }
-
-    container.addEventListener('pointerdown', (event) => {
-      if (isControlTarget(event.target)) return;
-      if (event.pointerType === 'mouse' && event.button !== 0) return;
-      if (event.isPrimary === false) return;
-
-      activePointerId = event.pointerId;
-      startX = lastX = event.clientX;
-      startY = event.clientY;
-      dragAxis = null;
-    });
-
-    function onPointerMove(event) {
-      if (event.pointerId !== activePointerId) return;
-
-      const totalX = event.clientX - startX;
-      const totalY = event.clientY - startY;
-
-      if (dragAxis === null) {
-        if (Math.hypot(totalX, totalY) < 4) return;
-
-        dragAxis = Math.abs(totalX) > Math.abs(totalY) ? 'horizontal' : 'vertical';
-        if (dragAxis === 'horizontal') {
-          container.style.cursor = 'grabbing';
-        }
-      }
-
-      if (dragAxis !== 'horizontal') return;
-
-      if (event.cancelable) {
-        event.preventDefault();
-      }
-
-      const deltaX = event.clientX - lastX;
-      lastX = event.clientX;
-
-      if (deltaX !== 0) {
-        map.panBy([-deltaX, 0], { animate: false });
-      }
-    }
-
-    function finishPointer(event) {
-      if (event.pointerId !== activePointerId) return;
-      activePointerId = null;
-      dragAxis = null;
-      container.style.cursor = 'grab';
-    }
-
-    document.addEventListener('pointermove', onPointerMove, { passive: false });
-    document.addEventListener('pointerup', finishPointer);
-    document.addEventListener('pointercancel', finishPointer);
-  }
-
-  function configureCompareSlider() {
-    const control = state.compareControl;
-    const map = state.compareMap;
-
-    if (!control || !map) return;
-
-    const wrapper = control._container || map.getContainer().querySelector('.leaflet-sbs');
-    const range = control._range || map.getContainer().querySelector('.leaflet-sbs-range');
-    const divider = control._divider || map.getContainer().querySelector('.leaflet-sbs-divider');
-
-    if (wrapper) {
-      Object.assign(wrapper.style, {
-        position: 'absolute',
-        left: '0px',
-        top: '0px',
-        right: '0px',
-        bottom: '0px',
-        width: '100%',
-        height: '100%',
-        direction: 'ltr',
-        pointerEvents: 'none'
-      });
-    }
-
-    if (range) {
-      range.setAttribute('dir', 'ltr');
-      Object.assign(range.style, {
-        position: 'absolute',
-        left: '0px',
-        right: 'auto',
-        top: '50%',
-        width: '100%',
-        height: '42px',
-        margin: '0',
-        transform: 'translateY(-50%)',
-        direction: 'ltr',
-        pointerEvents: 'none'
-      });
-    }
-
-    if (divider) divider.style.pointerEvents = 'none';
-
-    if (typeof control._updateClip === 'function') {
-      control._updateClip();
-    }
   }
 
   function initCompareMap() {
@@ -643,11 +501,6 @@
     ).addTo(state.compareMap);
 
     state.compareMap.attributionControl.setPrefix('');
-    enableHorizontalOnlyPan(state.compareMap);
-
-    state.compareMap.on('zoomend moveend resize viewreset', () => {
-      window.requestAnimationFrame(() => configureCompareSlider());
-    });
   }
 
   function populateCompareSelects() {
@@ -713,7 +566,6 @@
       rightLayer.addTo(state.compareMap);
 
       state.compareControl = L.control.sideBySide(leftLayer, rightLayer).addTo(state.compareMap);
-      configureCompareSlider();
 
       setStatus('compare-status', 'مقایسه آماده است.', 'success');
     } catch (error) {
@@ -859,17 +711,13 @@
 
     const areas = activeAreaRow?.classAreasKm2 || [null, null, null, null];
 
-    const areaOptions = chartBaseOptions('مساحت (km²)');
-    areaOptions.plugins.legend.display = false;
-    areaOptions.scales.y.min = 0;
-
     createOrUpdateChart('area', 'area-chart', {
       type: 'bar',
       data: {
         labels: summary.classes || CLASS_LABELS,
         datasets: [{ label: 'مساحت (کیلومترمربع)', data: areas.map(safeNumber), backgroundColor: summary.classColors || CLASS_COLORS, borderRadius: 7 }]
       },
-      options: areaOptions
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
     });
 
     const validAreas = areas.map(safeNumber);
@@ -907,14 +755,14 @@
     $('period-select').addEventListener('change', () => {
       $('map-title').textContent = periodCurrentLabel();
       renderCharts();
-      scheduleMainMapRender();
+      renderMainMap();
     });
 
     $('load-map-btn').addEventListener('click', renderMainMap);
 
     $('band-select').addEventListener('change', () => {
       updateLegend($('band-select').value);
-      scheduleMainMapRender();
+      renderMainMap();
     });
 
     $('opacity-select').addEventListener('input', () => {
